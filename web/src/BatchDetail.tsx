@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, post, put, type BatchDetail as Detail, type RowError } from "./api";
+import { api, ApiError, downloadFile, post, put, type BatchDetail as Detail, type RowError } from "./api";
 import { ACTION_LABEL, STATUS_LABEL, when } from "./format";
 
 // One batch: what it is, what the signed-in person may do with it (the server decides
@@ -149,7 +149,10 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
                   <td>{c.deliveryStatus === "SENT" ? "Sent" : c.deliveryStatus === "FAILED" ? "Failed" : "Pending"}{c.attempts > 1 ? ` (${c.attempts} tries)` : ""}</td>
                   <td>{c.status === "CANCELLED" ? "Cancelled" : "Valid"}</td>
                   <td>{c.verifyCode ? <a href={`/verify/${c.verifyCode.replaceAll("-", "")}`} target="_blank" rel="noreferrer">{c.verifyCode}</a> : ""}</td>
-                  <td>
+                  <td className="cell-actions">
+                    {c.status === "VALID" && (
+                      <button className="small" disabled={busy} onClick={() => void run(() => downloadFile(`/certificates/${c.id}/pdf`, `${c.number}.pdf`))}>Download PDF</button>
+                    )}
                     {can("CANCEL_CERTIFICATE") && c.status === "VALID" && (
                       <button className="danger small" disabled={busy || cancelReason.trim().length < 3} onClick={() => void run(() => post(`/certificates/${c.id}/cancel`, { reason: cancelReason }))}>Cancel</button>
                     )}

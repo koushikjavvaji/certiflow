@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { rawPrisma } from "../src/db";
 import { processIssue } from "../src/issuance";
 import { app } from "./helpers";
-import { api, approveFully, auditFor, createStubWhatsApp, makeSubmittedBatch, U } from "./flow-helpers";
+import { api, approveFully, auditFor, createStubWhatsApp, makeSubmittedBatch, otherCentreToken, U } from "./flow-helpers";
+import { bearer } from "./helpers";
 
 // Issues certificates directly (no worker) so these tests only look at verify / cancel.
 async function issuedBatch(n = 3) {
@@ -174,5 +175,47 @@ describe("certificate files", () => {
     const buf = readFileSync(`./.data/test-certs/${certificates[0]!.id}.pdf`);
     expect(buf.subarray(0, 4).toString()).toBe("%PDF");
     expect(buf.length).toBeGreaterThan(1000);
+  });
+});
+
+describe("downloading a certificate from the site (logged in)", () => {
+  const pdfOf = async (userId: string, certId: string) => {
+    const headers = bearer((await (await import("./helpers")).tokenFor(userId)));
+    return request(app).get(`/certificates/${certId}/pdf`).set(headers).buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on("data", (c: Buffer) => chunks.push(c));
+      r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+  };
+
+  it("everyone who may see the batch can download a real PDF", async () => {
+    const { certificates } = await issuedBatch(2);
+    for (const user of [U.anika, U.dev, U.meera, U.neha, U.farah]) {
+      const res = await pdfOf(user, certificates[0]!.id);
+      expect(res.status, user).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/pdf");
+      expect(res.headers["content-disposition"]).toContain(`${certificates[0]!.number}.pdf`);
+      expect((res.body as Buffer).subarray(0, 4).toString()).toBe("%PDF");
+    }
+  });
+
+  it("NEVER hands it to people who may not see that batch (404, so existence is not revealed)", async () => {
+    const { certificates } = await issuedBatch(1);
+    const id = certificates[0]!.id;
+    expect((await pdfOf(U.isha, id)).status).toBe(404); // officer of another district
+    const stranger = await request(app).get(`/certificates/${id}/pdf`).set({ authorization: `Bearer ${await otherCentreToken()}` });
+    expect(stranger.status).toBe(404); // a different training centre
+    expect((await request(app).get(`/certificates/${id}/pdf`)).status).toBe(401); // not logged in
+    expect((await pdfOf(U.farah, crypto.randomUUID())).status).toBe(404);
+    expect((await pdfOf(U.farah, "not-a-uuid")).status).toBe(400);
+  });
+
+  it("a cancelled certificate cannot be downloaded by anyone, including the state office", async () => {
+    const { certificates } = await issuedBatch(1);
+    const id = certificates[0]!.id;
+    expect((await pdfOf(U.farah, id)).status).toBe(200);
+    await (await api(U.farah)).post(`/certificates/${id}/cancel`, { reason: "cancelled for the test" });
+    expect((await pdfOf(U.farah, id)).status).toBe(410);
+    expect((await pdfOf(U.anika, id)).status).toBe(410);
   });
 });

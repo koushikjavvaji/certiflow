@@ -113,3 +113,22 @@ export interface RowError {
   field?: string;
   message: string;
 }
+
+// Downloads a file that needs the login token (a plain link cannot send it): fetch it with
+// the Authorization header, then hand the bytes to the browser as a normal download.
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`/api${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, (body as { error?: string }).error ?? res.statusText, body);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

@@ -10,6 +10,7 @@ import { authenticate, requireRole } from "../middleware/authenticate";
 import { config } from "../config";
 import { ensurePdf, isValidDownloadSignature } from "../pdf";
 import { allow } from "../rate-limit";
+import { canView } from "../workflow";
 
 export const certificatesRouter = Router();
 
@@ -60,11 +61,30 @@ certificatesRouter.get("/d/:id/:sig", async (req, res) => {
   const cert = await prisma.certificate.findUnique({ where: { id: parsed.data.id } });
   if (!cert) throw notFound();
   if (cert.status === "CANCELLED") throw new HttpError(410, "this certificate has been cancelled");
+  await sendPdf(res, cert);
+});
+
+async function sendPdf(res: import("express").Response, cert: { id: string; number: string }) {
   const pdf = await readFile(await ensurePdf(cert.id));
   res.setHeader("cache-control", "private, no-store");
   res.setHeader("content-type", "application/pdf");
   res.setHeader("content-disposition", `attachment; filename="${cert.number}.pdf"`);
   res.send(pdf);
+}
+
+// ---- LOGGED-IN staff: download a certificate from the site ---------------------------
+// Same permission as seeing the batch itself: its own centre, officers of that district,
+// the quality team and the state office. Anyone else gets "not found" (so existence is not
+// revealed). A cancelled certificate is never served, to anyone.
+certificatesRouter.get("/certificates/:id/pdf", authenticate, async (req, res) => {
+  const { id } = z.object({ id: z.uuid() }).parse(req.params);
+  const cert = await prisma.certificate.findUnique({
+    where: { id },
+    include: { batch: { select: { centreId: true, centre: { select: { districtId: true } } } } },
+  });
+  if (!cert || !canView(req.user!, cert.batch)) throw notFound("certificate not found");
+  if (cert.status === "CANCELLED") throw new HttpError(410, "this certificate has been cancelled");
+  await sendPdf(res, cert);
 });
 
 // ---- STATE OFFICE -----------------------------------------------------------------

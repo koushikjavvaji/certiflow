@@ -56,3 +56,4 @@ main.narrow { max-width: 420px; padding-top: 64px; }
 .narrow form.card label { margin-top: 12px; }
 .narrow form.card button.primary { width: 100%; margin-top: 16px; }
 .who .you { margin: 0 0 6px; text-align: right; } .who .row { justify-content: flex-end; align-items: center; }
+.cell-actions { white-space: nowrap; display: flex; gap: 6px; }
