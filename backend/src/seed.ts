@@ -28,7 +28,7 @@ async function seedPeople() {
     { id: D_RIVERSIDE, name: "Riverside District" },
     { id: D_HILLVIEW, name: "Hillview District" },
   ]) {
-    await db.district.upsert({ where: { id: d.id }, update: { name: d.name, deletedAt: null }, create: d });
+    await db.district.upsert({ where: { id: d.id }, update: { name: d.name, isActive: true }, create: d });
   }
 
   for (const c of [
@@ -37,7 +37,7 @@ async function seedPeople() {
   ]) {
     await db.centre.upsert({
       where: { id: c.id },
-      update: { name: c.name, districtId: c.districtId, deletedAt: null },
+      update: { name: c.name, districtId: c.districtId, isActive: true },
       create: c,
     });
   }
@@ -54,7 +54,7 @@ async function seedPeople() {
     { id: DEMO_USER_IDS.isha, name: "Isha", role: Role.DISTRICT_OFFICER, districtId: D_HILLVIEW, centreId: null },
   ];
   for (const u of users) {
-    await db.user.upsert({ where: { id: u.id }, update: { ...u, deletedAt: null }, create: u });
+    await db.user.upsert({ where: { id: u.id }, update: { ...u, isActive: true }, create: u });
   }
   return users.length;
 }
@@ -79,7 +79,7 @@ async function seedSettings() {
     },
   ];
   for (const s of defaults) {
-    const exists = await db.setting.findFirst({ where: { key: s.key, deletedAt: null } });
+    const exists = await db.setting.findFirst({ where: { key: s.key, isActive: true } });
     if (!exists) await db.setting.create({ data: { key: s.key, value: s.value as never, description: s.description } });
   }
 }
@@ -118,7 +118,7 @@ async function seedWorkflow() {
     },
   ];
   for (const s of steps) {
-    const exists = await db.workflowStep.findFirst({ where: { workflowVersion: 1, key: s.key, deletedAt: null } });
+    const exists = await db.workflowStep.findFirst({ where: { workflowVersion: 1, key: s.key, isActive: true } });
     if (!exists) await db.workflowStep.create({ data: { workflowVersion: 1, ...s, condition: s.condition as never } });
   }
 }

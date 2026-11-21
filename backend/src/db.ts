@@ -1,17 +1,17 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 
 // Two clients sharing ONE connection pool and ONE engine:
-//   rawPrisma  sees EVERYTHING, including soft-deleted rows. Use only for seeding,
+//   rawPrisma  sees EVERYTHING, including soft-deleted (isActive = false) rows. Use only for seeding,
 //              tests and deliberate admin tooling.
 //   prisma     the one application code uses. It automatically
-//                - hides rows where deletedAt is set (reads), and
-//                - turns delete()/deleteMany() into "set deletedAt" (soft delete).
-//              Models without a deletedAt column (append-only tables added later,
+//                - hides rows where isActive is false (reads), and
+//                - turns delete()/deleteMany() into "set isActive = false" (soft delete).
+//              Models without an isActive column (append-only tables added later,
 //              like AuditLog) are left alone, so this needs no per-table wiring.
 export const rawPrisma = new PrismaClient();
 
 const SOFT_DELETE_MODELS = new Set(
-  Prisma.dmmf.datamodel.models.filter((m) => m.fields.some((f) => f.name === "deletedAt")).map((m) => m.name),
+  Prisma.dmmf.datamodel.models.filter((m) => m.fields.some((f) => f.name === "isActive")).map((m) => m.name),
 );
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,7 +23,7 @@ const delegate = (model: string): any => (rawPrisma as any)[lowerFirst(model)];
 
 function hideDeleted(model: string, args: AnyArgs): AnyArgs {
   if (!SOFT_DELETE_MODELS.has(model)) return args;
-  return { ...args, where: { ...(args?.where ?? {}), deletedAt: null } };
+  return { ...args, where: { ...(args?.where ?? {}), isActive: true } };
 }
 
 export const prisma = rawPrisma.$extends({
@@ -41,13 +41,13 @@ export const prisma = rawPrisma.$extends({
       updateMany: ({ model, args, query }) => query(hideDeleted(model, args)),
       async delete({ model, args, query }) {
         if (!SOFT_DELETE_MODELS.has(model)) return query(args);
-        return delegate(model).update({ where: args.where, data: { deletedAt: new Date() } });
+        return delegate(model).update({ where: args.where, data: { isActive: false } });
       },
       async deleteMany({ model, args, query }) {
         if (!SOFT_DELETE_MODELS.has(model)) return query(args);
         return delegate(model).updateMany({
-          where: { ...(args?.where ?? {}), deletedAt: null },
-          data: { deletedAt: new Date() },
+          where: { ...(args?.where ?? {}), isActive: true },
+          data: { isActive: false },
         });
       },
     },

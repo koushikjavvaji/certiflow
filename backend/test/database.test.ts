@@ -14,11 +14,11 @@ afterAll(async () => {
 });
 
 describe("standard columns on every table", () => {
-  it("new rows get id, createdAt, updatedAt, null deletedAt and an empty meta object", async () => {
+  it("new rows get id, createdAt, updatedAt, isActive = true and an empty meta object", async () => {
     const d = await makeDistrict(uniqueName("std"));
     expect(d.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(d.createdAt).toBeInstanceOf(Date);
-    expect(d.deletedAt).toBeNull();
+    expect(d.isActive).toBe(true);
     expect(d.meta).toEqual({});
   });
 
@@ -48,14 +48,14 @@ describe("soft delete", () => {
 
     const raw = await rawPrisma.district.findUnique({ where: { id: d.id } });
     expect(raw).not.toBeNull();
-    expect(raw?.deletedAt).toBeInstanceOf(Date);
+    expect(raw?.isActive).toBe(false);
   });
 
   it("deleteMany() is soft too", async () => {
     const d = await makeDistrict(uniqueName("softmany"));
     await prisma.district.deleteMany({ where: { id: d.id } });
     expect(await prisma.district.count({ where: { id: d.id } })).toBe(0);
-    expect((await rawPrisma.district.findUnique({ where: { id: d.id } }))?.deletedAt).not.toBeNull();
+    expect((await rawPrisma.district.findUnique({ where: { id: d.id } }))?.isActive).toBe(false);
   });
 
   it("a soft-deleted name can be reused, but two ACTIVE rows cannot share a name", async () => {

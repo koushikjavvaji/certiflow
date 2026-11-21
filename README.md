@@ -45,12 +45,12 @@ cd backend && npm install && npm test      # applies migrations + seed itself
 
 ## Design decisions (and why)
 
-**Every table has the same standard columns:** `id`, `createdAt`, `updatedAt`, `deletedAt` (soft
-delete), `createdById`, `updatedById`, `meta` (JSON). Adding a table or attribute is routine, and
+**Every table has the same standard columns:** `id`, `createdAt`, `updatedAt`, `isActive` (soft
+delete: false = deleted), `createdById`, `updatedById`, `meta` (JSON). Adding a table or attribute is routine, and
 `meta` takes new attributes with no migration. Soft delete is applied centrally in
-`backend/src/db.ts`: normal queries hide deleted rows and `delete()` becomes "set deletedAt".
+`backend/src/db.ts`: normal queries hide inactive rows and `delete()` becomes "set isActive = false".
 Uniqueness ignores deleted rows (partial unique indexes, hand-written in the migration).
-Append-only tables added later (audit log, approvals) deliberately skip `updatedAt`/`deletedAt`.
+Append-only tables added later (audit log, approvals) deliberately skip `updatedAt`/`isActive`.
 
 **Rules are data, not code.** The approval path (`WorkflowStep`: who acts, own-district scope,
 how many approvals, SLA, "applies when") and tunables (`Setting`) live in the database. Edit a
@@ -69,6 +69,8 @@ No CORS: the browser only talks to its own origin, which proxies to the API.
 
 ## Known limitations (honest list)
 
+- Soft delete is a flag, so the moment of deletion is not stored (only `updatedAt`, which also
+  moves on any later edit). Add a `deactivatedAt` column or an audit entry if that is ever needed.
 - `createdById` / `updatedById` are plain columns, not foreign keys, and nothing fills them in
   yet (needed once there are writes by real users).
 - Roles are a database enum: a *new role* needs one migration. Changing which role handles a

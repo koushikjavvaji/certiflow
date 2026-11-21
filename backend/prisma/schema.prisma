@@ -4,9 +4,9 @@
 //   id          uuid primary key (not guessable, safe to expose in URLs)
 //   createdAt   set automatically
 //   updatedAt   maintained automatically by Prisma
-//   deletedAt   SOFT DELETE: null = active. Rows are never physically removed; the
-//               Prisma client in src/db.ts hides deleted rows and turns delete() into
-//               an update of deletedAt.
+//   isActive    SOFT DELETE: true = active, false = deleted. Rows are never physically
+//               removed; the Prisma client in src/db.ts hides inactive rows and turns
+//               delete() into "set isActive = false".
 //   createdById / updatedById   who made / last changed the row (soft references to
 //               User.id: plain columns, not foreign keys, so seed data and system jobs
 //               can write rows with no user, and history survives a user's removal)
@@ -14,7 +14,7 @@
 //               querying can be stored here with NO migration and NO redeploy.
 //
 // Append-only tables added later (AuditLog, Approval) deliberately do NOT get
-// updatedAt/deletedAt: a decision record must never be edited or hidden.
+// updatedAt/isActive: a decision record must never be edited or hidden.
 //
 // Hand-written SQL (partial unique indexes, CHECK constraints) lives in the migration
 // file, because Prisma cannot express it here. Search "Hand-written" in migrations/.
@@ -44,14 +44,14 @@ enum StepScope {
 // A region. Officers only act on batches from centres in their own district.
 // (name is unique among ACTIVE rows: partial index in the migration)
 model District {
-  id          String    @id @default(uuid()) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   name        String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-  createdById String?   @db.Uuid
-  updatedById String?   @db.Uuid
-  meta        Json      @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  meta        Json     @default("{}")
 
   centres Centre[]
   users   User[]
@@ -59,15 +59,15 @@ model District {
 
 // A training centre. Belongs to exactly one district.
 model Centre {
-  id          String    @id @default(uuid()) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   name        String
-  districtId  String    @db.Uuid
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-  createdById String?   @db.Uuid
-  updatedById String?   @db.Uuid
-  meta        Json      @default("{}")
+  districtId  String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  meta        Json     @default("{}")
 
   district District @relation(fields: [districtId], references: [id])
   users    User[]
@@ -82,17 +82,17 @@ model Centre {
 //   DISTRICT_OFFICER  -> districtId set, centreId null
 //   QUALITY, STATE    -> both null (they work across all districts)
 model User {
-  id          String    @id @default(uuid()) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   name        String
   role        Role
-  districtId  String?   @db.Uuid
-  centreId    String?   @db.Uuid
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-  createdById String?   @db.Uuid
-  updatedById String?   @db.Uuid
-  meta        Json      @default("{}")
+  districtId  String?  @db.Uuid
+  centreId    String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  meta        Json     @default("{}")
 
   district District? @relation(fields: [districtId], references: [id])
   centre   Centre?   @relation(fields: [centreId], references: [id])
@@ -106,16 +106,16 @@ model User {
 // no redeploy (readers cache for a short time, see src/config-store.ts).
 // key is unique among ACTIVE rows (partial index in the migration).
 model Setting {
-  id          String    @id @default(uuid()) @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
   key         String
   value       Json
   description String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-  createdById String?   @db.Uuid
-  updatedById String?   @db.Uuid
-  meta        Json      @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  meta        Json     @default("{}")
 }
 
 // The approval path as DATA. One row = one review step. Changing "how many district
@@ -144,7 +144,7 @@ model WorkflowStep {
   condition         Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  deletedAt         DateTime?
+  isActive          Boolean   @default(true)
   createdById       String?   @db.Uuid
   updatedById       String?   @db.Uuid
   meta              Json      @default("{}")

@@ -85,7 +85,7 @@ describe("rules are data in the database", () => {
   it("seeding again never overwrites a value edited in the database", async () => {
     await rawPrisma.setting.updateMany({ where: { key: "escalation.scanIntervalSeconds" }, data: { value: 7 } });
     execSync("npx tsx src/seed.ts", { stdio: "pipe" });
-    const row = await rawPrisma.setting.findFirst({ where: { key: "escalation.scanIntervalSeconds", deletedAt: null } });
+    const row = await rawPrisma.setting.findFirst({ where: { key: "escalation.scanIntervalSeconds", isActive: true } });
     expect(row?.value).toBe(7);
   });
 });
