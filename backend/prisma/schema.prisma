@@ -1,0 +1,63 @@
+// Phase 1 schema: who the people are and which district / centre they belong to.
+// Later phases add their own tables in their own migrations (Batch, Candidate, ...).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CENTRE
+  DISTRICT_OFFICER
+  QUALITY
+  STATE
+}
+
+// A region. Officers only act on batches from centres in their own district.
+model District {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  centres Centre[]
+  users   User[]
+}
+
+// A training centre. Belongs to exactly one district.
+model Centre {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  districtId String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  district District @relation(fields: [districtId], references: [id])
+  users    User[]
+
+  @@index([districtId])
+}
+
+// The demo people. No passwords: reviewers switch between them (see /auth/demo-login).
+//
+// Shape rules, enforced by a CHECK constraint added to the migration SQL
+// (Prisma cannot express CHECK constraints in the schema file):
+//   CENTRE            -> centreId set,   districtId null
+//   DISTRICT_OFFICER  -> districtId set, centreId null
+//   QUALITY, STATE    -> both null (they work across all districts)
+model User {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  role       Role
+  districtId String?  @db.Uuid
+  centreId   String?  @db.Uuid
+  createdAt  DateTime @default(now())
+
+  district District? @relation(fields: [districtId], references: [id])
+  centre   Centre?   @relation(fields: [centreId], references: [id])
+
+  @@index([districtId])
+  @@index([centreId])
+}
