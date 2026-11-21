@@ -96,6 +96,25 @@ describe("NEVER: brute-forcing a password", () => {
     expect((await login(email, DEFAULT_SEED_PASSWORD)).status).toBe(429);
   });
 
+  it("successful sign-ins never count towards a lockout, and a correct sign-in wipes earlier typos", async () => {
+    const email = `legit-${randomBytes(4).toString("hex")}@pragati.example`;
+    const password = "Legit#Pass-98765";
+    await rawPrisma.user.create({ data: { name: "Legit", email, role: "STATE", passwordHash: await hashPassword(password) } });
+    for (let i = 0; i < 12; i++) expect((await login(email, password)).status).toBe(200); // 12 successes in a row
+    for (let i = 0; i < 9; i++) expect((await login(email, `typo-${i}`)).status).toBe(401); // 9 typos...
+    expect((await login(email, password)).status).toBe(200); // ...then the right password works
+    for (let i = 0; i < 9; i++) expect((await login(email, `typo-${i}`)).status).toBe(401); // typos start from zero again
+    expect((await login(email, password)).status).toBe(200);
+  });
+
+  it("many guesses fired in PARALLEL cannot slip past the limit", async () => {
+    const email = `parallel-${randomBytes(4).toString("hex")}@pragati.example`;
+    const results = await Promise.all(Array.from({ length: 25 }, (_, i) => login(email, `guess-${i}`)));
+    const checked = results.filter((r) => r.status === 401).length; // guesses that were actually evaluated
+    expect(checked).toBeLessThanOrEqual(10);
+    expect(results.filter((r) => r.status === 429).length).toBeGreaterThanOrEqual(15);
+  });
+
   it("one caller hammering many different emails is limited too", async () => {
     const ip = `198.51.100.${randomBytes(3).toString("hex")}`;
     const send = () => request(app).post("/auth/login").set("x-forwarded-for", ip).send({ email: `x${randomBytes(4).toString("hex")}@pragati.example`, password: "pw" });

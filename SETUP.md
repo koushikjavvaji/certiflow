@@ -72,7 +72,7 @@ never touch demo data.
 docker compose up -d postgres redis      # if the stack is not already running
 cd backend
 npm install
-npm test                                 # 121 tests, about 25 seconds
+npm test                                 # 123 tests, about 25 seconds
 npm run typecheck
 ```
 They create `certiflow_test` from scratch on every run (migrations + seed), so a fresh clone needs no
@@ -141,4 +141,4 @@ cd ../web && npm install && npm run dev        # UI on :5173, proxies /api to :3
 | Tests fail to connect | Run `docker compose up -d postgres redis` and wait until both are `healthy` |
 | A sample CSV is rejected as "already submitted" | That is the one-person-per-course rule working. Use a new course code, or `docker compose down -v` |
 | Sign-in says "invalid email or password" | Use the emails above and the `SEED_PASSWORD` value. If you changed `SEED_PASSWORD` after the first start, the old password is still in place: `docker compose down -v` to start over |
-| Sign-in says "too many sign-in attempts" | The limit is 10 tries per email per 10 minutes. Wait, or `docker compose exec redis redis-cli FLUSHALL` |
+| Sign-in says "too many sign-in attempts" | The limit is 10 WRONG tries per email per 10 minutes (successful sign-ins do not count). Wait, or `docker compose exec redis redis-cli FLUSHALL` |

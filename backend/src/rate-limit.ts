@@ -14,3 +14,13 @@ export async function allow(key: string, limit: number, windowSeconds: number): 
     return true;
   }
 }
+
+// Forget a counter, e.g. when someone finally signs in correctly: their earlier typos
+// must not count towards locking them out.
+export async function reset(key: string): Promise<void> {
+  try {
+    await redis.del(key);
+  } catch (err) {
+    logger.warn({ err }, "rate limiter unavailable; could not reset");
+  }
+}

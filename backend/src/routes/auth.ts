@@ -4,7 +4,7 @@ import { config } from "../config";
 import { prisma } from "../db";
 import { signToken } from "../auth";
 import { verifyPassword } from "../password";
-import { allow } from "../rate-limit";
+import { allow, reset } from "../rate-limit";
 import { authenticate } from "../middleware/authenticate";
 
 // --- Demo-only "switch user" login -------------------------------------------------
@@ -30,8 +30,12 @@ export function createAuthRouter(demoMode: boolean) {
 
     // Brute-force protection: limited per caller AND per email address (so spreading
     // guesses across many IPs does not help). Counted in Redis, shared by all instances.
+    // The counter goes up BEFORE the password is checked (so parallel guesses cannot slip
+    // past a check-then-count gap) and is cleared by a correct sign-in, so only mistakes
+    // add up, never successes.
     const prefix = `${config.queuePrefix}:rl:login`;
-    const within = (await allow(`${prefix}:ip:${req.ip}`, 30, 60)) && (await allow(`${prefix}:email:${email}`, config.loginAttemptsPer10Min, 600));
+    const emailKey = `${prefix}:email:${email}`;
+    const within = (await allow(`${prefix}:ip:${req.ip}`, 30, 60)) && (await allow(emailKey, config.loginAttemptsPer10Min, 600));
     if (!within) {
       req.log.warn({ email }, "login rate limit hit");
       res.status(429).json({ error: "too many sign-in attempts, please wait a few minutes" });
@@ -46,6 +50,7 @@ export function createAuthRouter(demoMode: boolean) {
       res.status(401).json({ error: "invalid email or password" });
       return;
     }
+    await reset(emailKey);
     req.log.info({ userId: user.id }, "signed in");
     res.json({ token: signToken(user.id) });
   });

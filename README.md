@@ -178,7 +178,7 @@ the scan interval setting (`escalation.scanIntervalSeconds`) is read when a work
 
 ## 6. Tests
 
-121 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
+123 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
 proven (unique constraints, row locks, queues) live there. They use their own database
 (`certiflow_test`, recreated every run) and their own Redis db and queue prefix, so they never
 touch demo data or get picked up by the running worker. They run the real queue with an in-process
@@ -238,7 +238,7 @@ scripts/smoke.mjs                  end-to-end run against the live system
 This project was built with an AI coding assistant (Claude Code) working from the problem statement.
 It wrote the code; I directed it, reviewed the decisions above, and made the product choices.
 How the output was checked, not just trusted:
-- **Everything was run:** typechecks, 121 tests (repeatedly, to expose flakiness), the full stack in
+- **Everything was run:** typechecks, 123 tests (repeatedly, to expose flakiness), the full stack in
   Docker, `scripts/smoke.mjs`, and the UI in a real browser.
 - **Tests were tested:** deliberate bugs (no row lock, random idempotency key, disabled soft-delete
   filter) were introduced to confirm the right tests fail.
@@ -257,7 +257,7 @@ How the output was checked, not just trusted:
   change screen, no multi-factor, no single sign-on, and tokens last 8 hours and cannot be revoked
   individually (removing a person does stop their token, since the person is re-read on every request).
   For production I would put an OIDC identity provider in front. Also, the per-email attempt limit
-  means someone can deliberately lock a colleague out for 10 minutes by guessing wrongly.
+  means someone can deliberately lock a colleague out for 10 minutes by guessing wrongly (only wrong guesses count; a correct sign-in clears the counter).
 - **The seeded accounts share one default demo password** until you set `SEED_PASSWORD`; the seed warns
   about this. Never run a real deployment on it.
 - **The demo user list is public** (`GET /auth/demo-users` feeds the shortcut dropdown), so in demo mode anyone can see
