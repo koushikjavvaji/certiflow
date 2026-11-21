@@ -76,24 +76,27 @@ model Centre {
   @@index([districtId])
 }
 
-// The demo people. No passwords: reviewers switch between them (see /auth/demo-login).
+// The people who use the system. They sign in with email + password (/auth/login). In demo
+// mode (DEMO_MODE=true) reviewers may also switch between them without a password.
 //
 // Shape rules, enforced by a CHECK constraint in the migration:
 //   CENTRE            -> centreId set,   districtId null
 //   DISTRICT_OFFICER  -> districtId set, centreId null
 //   QUALITY, STATE    -> both null (they work across all districts)
 model User {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String
-  role        Role
-  districtId  String?  @db.Uuid
-  centreId    String?  @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  isActive    Boolean  @default(true)
-  createdById String?  @db.Uuid
-  updatedById String?  @db.Uuid
-  meta        Json     @default("{}")
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String? // login name, stored lower-case; unique among ACTIVE users (index in the migration)
+  passwordHash String? // scrypt hash, never the password itself; never returned by any endpoint
+  role         Role
+  districtId   String?  @db.Uuid
+  centreId     String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  isActive     Boolean  @default(true)
+  createdById  String?  @db.Uuid
+  updatedById  String?  @db.Uuid
+  meta         Json     @default("{}")
 
   district District? @relation(fields: [districtId], references: [id])
   centre   Centre?   @relation(fields: [centreId], references: [id])

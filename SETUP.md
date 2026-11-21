@@ -30,15 +30,29 @@ Check: `docker compose ps` shows `healthy`, and `curl localhost:8080/api/health`
 
 ## 2. Try it
 
-Open **http://localhost:8080** and use the *act as* dropdown.
+Open **http://localhost:8080**. Two ways to be someone:
 
-| Person | Role |
-|---|---|
-| Anika | Training centre (Sunrise Skills Centre, Riverside district) |
-| Dev, Meera, Kabir | District officers (Riverside) |
-| Neha | Quality team |
-| Farah | State office |
-| Isha | District officer in a *different* district (to show isolation) |
+**Sign in with email and password (the real thing).** Everyone has an account:
+
+| Person | Email | Role |
+|---|---|---|
+| Anika | `anika@pragati.example` | Training centre (Sunrise Skills Centre, Riverside district) |
+| Dev, Meera, Kabir | `dev@`, `meera@`, `kabir@pragati.example` | District officers (Riverside) |
+| Neha | `neha@pragati.example` | Quality team |
+| Farah | `farah@pragati.example` | State office |
+| Isha | `isha@pragati.example` | District officer in a *different* district (to show isolation) |
+
+All seven start with the same demo password. It is the value of `SEED_PASSWORD` in `.env.example`
+(change it by setting `SEED_PASSWORD` before the **first** start; it is only applied when an account is
+first created, so later restarts never overwrite a changed password).
+
+**Demo shortcut (default `DEMO_MODE=true`).** The sign-in page also shows a "switch person" dropdown with no
+password, so a reviewer can hop between roles in seconds.
+
+**See the final, non-demo version** (sign-in only, no shortcut):
+```bash
+echo "DEMO_MODE=false" > .env && docker compose up -d      # back to demo: delete the .env file and run it again
+```
 
 **Suggested walk-through:** as Anika create a batch and upload `bad-rows` (see the errors, nothing
 saved) then `big-60`, and submit. Switch to Dev then Meera and approve. Neha approves (60 is a big
@@ -58,7 +72,7 @@ never touch demo data.
 docker compose up -d postgres redis      # if the stack is not already running
 cd backend
 npm install
-npm test                                 # 106 tests, about 15 seconds
+npm test                                 # 121 tests, about 25 seconds
 npm run typecheck
 ```
 They create `certiflow_test` from scratch on every run (migrations + seed), so a fresh clone needs no
@@ -126,4 +140,5 @@ cd ../web && npm install && npm run dev        # UI on :5173, proxies /api to :3
 | Port 5432, 6379, 3000, 4000 or 8080 already in use | Stop the other program, or change the left side of the port mapping in `docker-compose.yml` |
 | Tests fail to connect | Run `docker compose up -d postgres redis` and wait until both are `healthy` |
 | A sample CSV is rejected as "already submitted" | That is the one-person-per-course rule working. Use a new course code, or `docker compose down -v` |
-| Page shows "Choose a person…" but the list is empty | The API is still starting; wait for `docker compose ps` to show `api` healthy and reload |
+| Sign-in says "invalid email or password" | Use the emails above and the `SEED_PASSWORD` value. If you changed `SEED_PASSWORD` after the first start, the old password is still in place: `docker compose down -v` to start over |
+| Sign-in says "too many sign-in attempts" | The limit is 10 tries per email per 10 minutes. Wait, or `docker compose exec redis redis-cli FLUSHALL` |

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, getToken, setToken, type ConfigView, type DemoUser, type Me } from "./api";
+import { api, ApiError, getToken, post, setToken, type ConfigView, type DemoUser, type Me } from "./api";
 import Dashboard from "./Dashboard";
 import { ROLE_LABEL } from "./format";
 import Rules from "./Rules";
@@ -13,10 +13,14 @@ export default function App() {
 }
 
 function Staff() {
+  const [demoMode, setDemoMode] = useState(false);
   const [users, setUsers] = useState<DemoUser[]>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [config, setConfig] = useState<ConfigView | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const loadSession = useCallback(async () => {
     if (!getToken()) {
@@ -29,30 +33,95 @@ function Staff() {
       setMe(user);
       setConfig(cfg);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setToken(null); // stale or rejected token
+      if (e instanceof ApiError && e.status === 401) setToken(null); // expired or rejected token
       setMe(null);
       setConfig(null);
     }
   }, []);
 
   useEffect(() => {
-    api<{ users: DemoUser[] }>("/auth/demo-users").then((r) => setUsers(r.users)).catch((e) => setError(e.message));
+    api<{ demoMode: boolean }>("/auth/config")
+      .then(async (c) => {
+        setDemoMode(c.demoMode);
+        if (c.demoMode) setUsers((await api<{ users: DemoUser[] }>("/auth/demo-users")).users);
+      })
+      .catch((e) => setError(e.message));
     void loadSession();
   }, [loadSession]);
 
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const { token } = await post<{ token: string }>("/auth/login", { email, password });
+      setToken(token);
+      setPassword("");
+      await loadSession();
+    } catch (err) {
+      setError(err instanceof ApiError && err.status === 400 ? "Enter a valid email address and your password." : err instanceof Error ? err.message : "sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function signOut() {
+    setToken(null);
+    setMe(null);
+    setConfig(null);
+    setError(null);
+  }
+
+  // Demo mode only: jump to any person without a password.
   async function switchTo(userId: string) {
     setError(null);
-    if (!userId) {
-      setToken(null);
-      return loadSession();
-    }
+    if (!userId) return signOut();
     try {
-      const { token } = await api<{ token: string }>("/auth/demo-login", { method: "POST", body: JSON.stringify({ userId }) });
+      const { token } = await post<{ token: string }>("/auth/demo-login", { userId });
       setToken(token);
       await loadSession();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "login failed");
+      setError(e instanceof Error ? e.message : "could not switch");
     }
+  }
+
+  const demoSwitcher = demoMode && (
+    <div className="who">
+      <label htmlFor="who">Demo shortcut: act as (no password)</label>
+      <select id="who" value={me?.id ?? ""} onChange={(e) => void switchTo(e.target.value)}>
+        <option value="">Choose a person…</option>
+        {users.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.name}: {ROLE_LABEL[u.role] ?? u.role}
+            {u.district ? ` (${u.district.name})` : u.centre ? ` (${u.centre.name})` : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  if (!me) {
+    return (
+      <main className="narrow">
+        <header>
+          <h1>CertiFlow</h1>
+          <p className="sub">Pragati Skills Mission · certificate issuance</p>
+        </header>
+        <form className="card" onSubmit={signIn}>
+          <h2>Sign in</h2>
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className="wide" required />
+          <label htmlFor="password">Password</label>
+          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="wide" required />
+          {error && <p className="error">{error}</p>}
+          <button className="primary" disabled={busy || !email || !password}>{busy ? "Signing in…" : "Sign in"}</button>
+        </form>
+        {demoSwitcher && <section className="card">{demoSwitcher}</section>}
+        <p className="muted">
+          Checking a certificate? No account needed: <a href="/verify">open the public verify page</a>.
+        </p>
+      </main>
+    );
   }
 
   return (
@@ -63,30 +132,19 @@ function Staff() {
           <p className="sub">Pragati Skills Mission · certificate issuance</p>
         </div>
         <div className="who">
-          <label htmlFor="who">Demo mode: act as</label>
-          <select id="who" value={me?.id ?? ""} onChange={(e) => void switchTo(e.target.value)}>
-            <option value="">Choose a person…</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}: {ROLE_LABEL[u.role] ?? u.role}
-                {u.district ? ` (${u.district.name})` : u.centre ? ` (${u.centre.name})` : ""}
-              </option>
-            ))}
-          </select>
+          <p className="you">
+            Signed in as <strong>{me.name}</strong>, {ROLE_LABEL[me.role] ?? me.role}
+          </p>
+          <div className="row">
+            <button onClick={signOut}>Sign out</button>
+            <a href="/verify" target="_blank" rel="noreferrer">Public verify page</a>
+          </div>
         </div>
       </header>
+      {demoSwitcher}
       {error && <p className="error">{error}</p>}
-      {me ? (
-        <>
-          <p className="you">You are <strong>{me.name}</strong>, {ROLE_LABEL[me.role] ?? me.role}. <a href="/verify" target="_blank" rel="noreferrer">Public verify page</a></p>
-          <Dashboard key={me.id} me={me} />
-          {config && <Rules config={config} />}
-        </>
-      ) : (
-        <section className="card">
-          <p className="muted">Pick a person above to start. Anyone (an employer, say) can also use the <a href="/verify">public verify page</a> without logging in.</p>
-        </section>
-      )}
+      <Dashboard key={me.id} me={me} />
+      {config && <Rules config={config} />}
     </main>
   );
 }

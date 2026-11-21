@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// End-to-end smoke test of the RUNNING system (docker compose up). Plays every role through
+// End-to-end smoke test of the RUNNING system (docker compose up). Signs in as every role and plays them through
 // the whole journey over HTTP: upload -> approvals -> certificates on "phones" -> verify
 // -> cancel -> verify again. Usage:  node scripts/smoke.mjs [baseUrl]
 // Needs Node 18+. Uses fresh random data each run, so it can be repeated.
@@ -23,9 +23,17 @@ async function call(method, path, { as, body, expect: want } = {}) {
   return { status: res.status, body: json };
 }
 
-const { body: { users } } = await call("GET", "/auth/demo-users", { expect: 200 });
-for (const u of users) tokens[u.name] = (await call("POST", "/auth/demo-login", { body: { userId: u.id }, expect: 200 })).body.token;
-say(`logged in as ${users.map((u) => u.name).join(", ")}`);
+// Real sign-in (email + password), so this works with DEMO_MODE on OR off.
+// The seeded password is set by SEED_PASSWORD (see .env.example); override it here if you changed it.
+const PASSWORD = process.env.SEED_PASSWORD ?? "Pragati#Demo2026";
+const names = ["Anika", "Dev", "Meera", "Kabir", "Neha", "Farah", "Isha"];
+for (const name of names) {
+  const email = `${name.toLowerCase()}@pragati.example`;
+  tokens[name] = (await call("POST", "/auth/login", { body: { email, password: PASSWORD }, expect: 200 })).body.token;
+}
+say(`signed in with email + password as ${names.join(", ")}`);
+const wrong = await call("POST", "/auth/login", { body: { email: "farah@pragati.example", password: "wrong" }, expect: 401 });
+say(`a wrong password is refused: "${wrong.body.error}"`);
 
 const course = "SM" + randomBytes(3).toString("hex").toUpperCase();
 const phones = Array.from({ length: 60 }, () => "9" + String(Math.floor(Math.random() * 9e8) + 1e8));

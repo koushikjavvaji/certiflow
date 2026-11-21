@@ -64,6 +64,7 @@ services:
     environment:
       <<: *backend-env
       PORT: "3000"
+      SEED_PASSWORD: ${SEED_PASSWORD:-Pragati#Demo2026} # password given to the seeded accounts on first creation
     ports:
       - "3000:3000"
     volumes:

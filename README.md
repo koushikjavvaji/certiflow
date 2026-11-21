@@ -53,7 +53,7 @@ without a redeploy (see section 5).
 | What do officers see of candidates? | Phone numbers **masked** (last 4 digits); only the owning centre sees them in full | `view.ts` |
 | What do centres see of officers? | **Only the role** ("District officer"), never the individual's name, in approvals and history. Centres see their own name on their own actions. Staff see names (accountability) | `view.ts` |
 | Do candidates / employers have accounts? | **No.** They can only open the signed download link and the public verify page; neither shows any officer or internal data | |
-| Login | A demo "switch user" login with signed tokens (no passwords), as the brief's demo setup asks. Must be turned off in production (`DEMO_MODE=false`) | `routes/auth.ts` |
+| Login | **Email + password** for every person (scrypt-hashed, rate limited). A **demo shortcut** (`DEMO_MODE=true`) additionally lets a reviewer switch person with no password, as the brief's demo setup asks; set it to `false` for the real thing | `routes/auth.ts`, `password.ts` |
 
 ### The six moments that must work, and where each is proven
 | # | Moment | How it is handled | Proof (test file) |
@@ -178,7 +178,7 @@ the scan interval setting (`escalation.scanIntervalSeconds`) is read when a work
 
 ## 6. Tests
 
-106 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
+121 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
 proven (unique constraints, row locks, queues) live there. They use their own database
 (`certiflow_test`, recreated every run) and their own Redis db and queue prefix, so they never
 touch demo data or get picked up by the running worker. They run the real queue with an in-process
@@ -195,6 +195,7 @@ cd backend && npm install && npm test
 | `issuance.test.ts` | Moment 3; worker restart mid-batch; lost-event recovery; concurrent duplicate jobs; DB unique constraints; WhatsApp outage then retry |
 | `verify.test.ts` | Moment 4; public verify privacy; rate limit; download link security; cancelled = never sent |
 | `overdue.test.ts` | Moment 5; flagged once; SLA is a database value |
+| `login.test.ts` | Email + password sign-in; no hint which emails exist; brute-force limits; hashes only, never shown; removed people locked out |
 | `auth.test.ts`, `platform.test.ts`, `database.test.ts`, `config.test.ts` | Tampered/forged/expired tokens; role checks; headers; soft delete; DB constraints; config caching |
 
 **I checked the tests can fail:** I deliberately removed the row lock and made the WhatsApp
@@ -237,7 +238,7 @@ scripts/smoke.mjs                  end-to-end run against the live system
 This project was built with an AI coding assistant (Claude Code) working from the problem statement.
 It wrote the code; I directed it, reviewed the decisions above, and made the product choices.
 How the output was checked, not just trusted:
-- **Everything was run:** typechecks, 106 tests (repeatedly, to expose flakiness), the full stack in
+- **Everything was run:** typechecks, 121 tests (repeatedly, to expose flakiness), the full stack in
   Docker, `scripts/smoke.mjs`, and the UI in a real browser.
 - **Tests were tested:** deliberate bugs (no row lock, random idempotency key, disabled soft-delete
   filter) were introduced to confirm the right tests fail.
@@ -252,10 +253,15 @@ How the output was checked, not just trusted:
 
 ## 9. Known limitations and next steps (honest list)
 
-- **Login is a demo.** Anyone can pick any user. Production needs real sign-in (SSO / OTP) and
-  `DEMO_MODE=false`; the rest of the permission model is real.
-- **The demo user list is public** (`GET /auth/demo-users` feeds the dropdown), so in demo mode anyone can see
-  the six names and roles. With `DEMO_MODE=false` the route does not exist.
+- **Sign-in is basic.** Email + password with hashing and brute-force limits, but **no** password reset or
+  change screen, no multi-factor, no single sign-on, and tokens last 8 hours and cannot be revoked
+  individually (removing a person does stop their token, since the person is re-read on every request).
+  For production I would put an OIDC identity provider in front. Also, the per-email attempt limit
+  means someone can deliberately lock a colleague out for 10 minutes by guessing wrongly.
+- **The seeded accounts share one default demo password** until you set `SEED_PASSWORD`; the seed warns
+  about this. Never run a real deployment on it.
+- **The demo user list is public** (`GET /auth/demo-users` feeds the shortcut dropdown), so in demo mode anyone can see
+  the seven names and roles, and can act as any of them. With `DEMO_MODE=false` those routes do not exist.
 - **No admin screen for rules.** They are edited in SQL, so those edits are not in the audit log
   (the standard `updatedById` columns exist but are not filled for SQL edits). Next step: a state-office
   screen that writes through the API and the audit log.

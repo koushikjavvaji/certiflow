@@ -20,6 +20,7 @@ const schema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(5),
   WHATSAPP_RATE_PER_SEC: z.coerce.number().int().min(1).default(20), // cap on provider calls per second
   VERIFY_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(120), // public lookups per IP
+  LOGIN_ATTEMPTS_PER_10_MIN: z.coerce.number().int().min(1).default(10), // per email address
 });
 
 const parsed = schema.safeParse(process.env);
@@ -47,4 +48,5 @@ export const config = {
   workerConcurrency: env.WORKER_CONCURRENCY,
   whatsappRatePerSec: env.WHATSAPP_RATE_PER_SEC,
   verifyRateLimitPerMin: env.VERIFY_RATE_LIMIT_PER_MIN,
+  loginAttemptsPer10Min: env.LOGIN_ATTEMPTS_PER_10_MIN,
 } as const;

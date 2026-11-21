@@ -52,3 +52,7 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: G
 .settings { padding-left: 18px; font-size: 14px; line-height: 1.8; } code { font-size: 13px; }
 .verdict.ok { border-color: #27ae60; background: #27ae6012; } .verdict.bad { border-color: #c0392b; background: #c0392b10; }
 .verdict dl { display: grid; grid-template-columns: 180px 1fr; gap: 6px 12px; margin: 12px 0 0; } .verdict dt { color: GrayText; } .verdict dd { margin: 0; }
+main.narrow { max-width: 420px; padding-top: 64px; }
+.narrow form.card label { margin-top: 12px; }
+.narrow form.card button.primary { width: 100%; margin-top: 16px; }
+.who .you { margin: 0 0 6px; text-align: right; } .who .row { justify-content: flex-end; align-items: center; }
