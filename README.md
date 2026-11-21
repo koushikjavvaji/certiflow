@@ -276,6 +276,9 @@ How the output was checked, not just trusted:
   (see DEPLOYMENT.md); the code touches files in one place (`pdf.ts`).
 - **Delivery retry window is short** (8 attempts, minutes) to keep the demo snappy. A real WhatsApp outage
   can last hours; production should lengthen the backoff (one environment variable) and pause the queue.
+- **Many tabs share one live stream** (a leader tab holds it and relays to the others through the browser's
+  Web Locks and BroadcastChannel APIs). Browsers cap plain-HTTP connections per site at about 6, and one stream per
+  tab froze page loads once 6 tabs were open. Not covered by automated tests (browser-only); checked by hand.
 - **Live updates are best-effort** (the browser reconnects and re-fetches, so nothing is permanently missed).
 - **The rate limiter fails open** if Redis is down (availability over strictness for a public page).
 - **The worker container has no health check**; it relies on `restart: unless-stopped`.
