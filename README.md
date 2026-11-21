@@ -1,246 +1,125 @@
 # CertiFlow
 
-Certificate issuance platform for the (fictional) Pragati Skills Mission. Training centres upload
-passed batches, officers approve them in stages, every candidate gets a certificate on WhatsApp,
-and anyone can check a certificate is genuine without logging in.
+Certificate issuance for the (fictional) Pragati Skills Mission. Training centres upload passed batches, officers
+approve them in stages, every candidate gets a certificate on WhatsApp, and anyone can check a certificate is
+genuine without logging in.
 
-- **Run it:** [SETUP.md](SETUP.md) (one command: `docker compose up --build`)
-- **Production plan:** [DEPLOYMENT.md](DEPLOYMENT.md)
+**Run it:** `docker compose up --build`, then open http://localhost:8080. Full steps in [SETUP.md](SETUP.md).
+**Production plan:** [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-## 1. Requirements note (my reading of the brief)
+## 1. Requirements note
 
-### What the programme office asked for
-Centres upload passed batches and send them for approval. District officers check them (more than
-one must agree), big batches get extra scrutiny, and the state office has the final say. After
-approval every candidate gets a certificate on WhatsApp straight away. Officers can fix mistakes.
-Anyone can verify a certificate. Files must not sit with an officer for days.
+**The brief in one line:** centres upload batches; district officers (more than one must agree) review them; big
+batches get extra scrutiny; the state office has the final say; then every candidate gets a WhatsApp certificate;
+mistakes can be fixed; anyone can verify; nothing may sit with an officer for days.
 
-### Who uses it
-| Person | Role in the system | Demo user |
+| Who | Does | Demo user |
 |---|---|---|
-| Training centre | Creates batches, uploads the spreadsheet, submits, fixes and resubmits | Anika |
-| District officer | Reviews batches **from their own district** | Dev, Meera, Kabir |
-| Quality team | Reviews big batches | Neha |
-| State office | Final approval, sees stuck batches, cancels certificates | Farah |
-| Candidate | Receives the certificate on WhatsApp and can download it | (no login) |
-| Employer / public | Verifies a certificate | (no login) |
+| Training centre | creates a batch, uploads the CSV, submits, fixes and resubmits | Anika |
+| District officer | reviews batches **of their own district** | Dev, Meera, Kabir |
+| Quality team | reviews big batches | Neha |
+| State office | final approval, sees stuck batches, cancels certificates | Farah |
+| Candidates, employers | no account: a download link on WhatsApp / the public verify page | |
 
-I added one extra demo person, **Isha**, an officer in a *different* district, so district
-isolation can be demonstrated and tested. She is not in the brief.
+(I added **Isha**, an officer of a *different* district, to demonstrate district isolation.)
 
 ### Where the brief was unclear, and what I decided
-These are my decisions. Most are **data in the database**, not code, so they can be changed
-without a redeploy (see section 5).
+Marked **(data)** = stored in the database, so it can be changed with no redeploy.
 
-| Unclear point | My decision | Where it lives |
-|---|---|---|
-| "More than one officer" in a district | **2 different officers** of the batch's own district; one officer cannot approve twice | `WorkflowStep.requiredApprovals` |
-| What is a "big batch"? | **50 or more candidates** goes through the quality team (49 skips it) | `WorkflowStep.condition` `{"minCandidates": 50}` |
-| What can quality / state do? | Same as district officers: approve, send back (reason), reject (reason) | `WorkflowStep.role` |
-| Send back vs reject | **Send back** = centre fixes and resubmits. **Reject** = closed for good; its candidates are freed to be submitted again | code (`workflow.ts`) |
-| **What happens to approvals when a sent-back batch is resubmitted** (Moment 6) | **They are discarded and review restarts from the first step.** The data changed, so earlier approvals no longer describe what is being approved; keeping them would let a centre get approval and then edit. Old approvals stay in the database and audit log as history. A setting switches this off (resume at the same step, keep approvals) | `Setting` `resubmit.resetApprovals` |
-| "Officers sometimes make mistakes, so they should be able to fix them" | An officer can **withdraw their own approval** while the batch is still at their step, and approve again. A wrong certificate can be **cancelled** by the state office after issue | `workflow.ts`, `certificates.ts` |
-| "Files sitting with an officer for days" | Each step has an **SLA (default 48 h)**. A batch past it is flagged once, recorded in the audit log, announced live, and listed in the state office's **Stuck** tab. Nobody has to chase | `WorkflowStep.slaMinutes` |
-| Same person in two batches | The same **phone + course** can exist once among active batches (database rule) | partial unique index |
-| What does the public verify page show? | Status (valid / cancelled), certificate number, **masked** holder name, course, centre, issue date. **Never** phone or marks | `routes/certificates.ts` |
-| How does a stranger look up a certificate? | By a random **verification code** printed on the PDF / in its QR code. The certificate number alone does **not** work, because numbers are sequential and guessable | |
-| How does a candidate download? | A signed, unguessable link in the WhatsApp message. No login | `pdf.ts` |
-| What is "the spreadsheet"? | A **CSV** with `name, phone, courseCode, marks (optional)` | `csv.ts` |
-| Phone numbers | Indian mobile numbers, stored as `+91XXXXXXXXXX`; common spellings accepted | `csv.ts` |
-| Certificate number | `PSM-<year>-<6 digits>` from a database sequence | |
-| What do officers see of candidates? | Phone numbers **masked** (last 4 digits); only the owning centre sees them in full | `view.ts` |
-| What do centres see of officers? | **Only the role** ("District officer"), never the individual's name, in approvals and history. Centres see their own name on their own actions. Staff see names (accountability) | `view.ts` |
-| Do candidates / employers have accounts? | **No.** They can only open the signed download link and the public verify page; neither shows any officer or internal data | |
-| Login | **Email + password** for every person (scrypt-hashed, rate limited). A **demo shortcut** (`DEMO_MODE=true`) additionally lets a reviewer switch person with no password, as the brief's demo setup asks; set it to `false` for the real thing | `routes/auth.ts`, `auth.ts` |
-
-### The six moments that must work, and where each is proven
-| # | Moment | How it is handled | Proof (test file) |
-|---|---|---|---|
-| 1 | Spreadsheet with a few bad rows | Every row is checked and **every** problem reported by row; saved only if there are none, in one transaction | `intake.test.ts` |
-| 2 | Two officers approve at the same moment | The batch row is locked (`SELECT … FOR UPDATE`), so the second request sees what the first did; it moves on exactly once | `workflow.test.ts` (incl. 12 batches raced at once) |
-| 3 | 60 candidates, unreliable WhatsApp | A queue with retries, plus idempotency at every step: exactly one certificate and one message each | `issuance.test.ts` |
-| 4 | Cancelled certificate | Verify reads the database every time (no cache), so the very next lookup says cancelled | `verify.test.ts` |
-| 5 | Batch sits too long | Overdue scan flags it once, audits it, announces it, lists it for the state office | `overdue.test.ts` |
-| 6 | Sent back and resubmitted | Documented decision above, as a setting, tested both ways | `workflow.test.ts` |
-
-### The things that must never happen, and what stops them
-| Must never happen | What stops it |
+| Unclear | Decision |
 |---|---|
-| Acting at a step that is not yours, or as someone else | Role + district checked **on the server** on every action; the token holds only the user id and role is re-read from the database; signature, algorithm, issuer and expiry are verified |
-| Two certificates for a candidate, or a shared number | `UNIQUE(candidateId)` and `UNIQUE(number)`; numbers come from a database sequence; jobs are idempotent |
-| A cancelled certificate showing as genuine | Verify never caches; cancelled certificates are never sent and their download link returns 410 |
-| A stranger getting someone's certificate or details | Unguessable verification code and signed download link, rate-limited public lookup, masked phones, centres and districts cannot see each other's batches (404, not 403, so existence is not revealed) |
-| An untraceable decision | Every action writes an audit row (who, what, when, why) **in the same transaction** as the change; the database refuses to update, delete or truncate the audit table |
+| "More than one officer" | **2 different officers** of the batch's own district; nobody approves twice **(data)** |
+| "Big batches" | **50 or more** candidates also go to the quality team **(data)** |
+| Send back vs reject | **Send back**: the centre fixes and resubmits. **Reject**: closed for good, candidates freed |
+| **Approvals after a send-back (Moment 6)** | **Discarded; review restarts from step one.** The data changed, so old approvals no longer describe it, and keeping them would let a centre get approval and then edit. A setting can switch this off **(data)** |
+| "Officers can fix mistakes" | An officer can **withdraw their own approval** at their step; the state office can **cancel** a certificate after issue |
+| "Too long with an officer" | Each step has a time limit (**48 h**). A late batch is flagged once, audited, announced live, and listed in the state office's **Stuck** tab **(data)** |
+| Same person in two batches | The same **phone + course** can be certified once (database rule) |
+| What the public sees | Valid/cancelled, certificate number, **masked** name, course, centre, date. Never phone or marks |
+| How a stranger looks one up | By a **random verification code** on the PDF/QR. The certificate number alone does not work (it is sequential and guessable) |
+| Login | **Email + password** for everyone. A no-password "switch person" shortcut (`DEMO_MODE=true`) exists because the brief's demo asks for it; turn it off for real use |
 
 ---
 
-## 2. Quick start
-
-```bash
-docker compose up --build         # everything, with demo data
-```
-Open **http://localhost:8080**, pick a person in the dropdown. Sample spreadsheets are linked in
-the centre's upload screen (`small-5`, `big-60`, `bad-rows`). To watch the whole journey run by
-itself: `node scripts/smoke.mjs`. Full details, including running the tests: [SETUP.md](SETUP.md).
-
----
-
-## 3. How the system is put together
+## 2. How it works
 
 ```
-                      ┌────────────────────────────────────────────────────────┐
-  Browser ──────────▶ │ web (nginx)  serves the React app, forwards /api/* ───┐│
-  (React + Vite)      └───────────────────────────────────────────────────────┼┘
-        ▲  live updates (SSE)                                                  ▼
-        │                                              ┌──────────────────────────┐
-        └───────────────────────────────────────────── │ api  (Express, stateless)│
-                                                       └──┬───────────┬───────────┘
-                          decisions + audit in ONE        │           │ enqueue event "batch.approved"
-                          transaction                     ▼           ▼
-                                              ┌──────────────┐   ┌────────────────────┐
-                                              │ PostgreSQL   │   │ Redis              │
-                                              │ source of    │   │ BullMQ queues,     │
-                                              │ truth        │   │ pub/sub, config    │
-                                              └──────▲───────┘   │ cache, rate limit  │
-                                                     │           └─────────┬──────────┘
-                                                     │                     │ jobs
-                                              ┌──────┴─────────────────────▼──┐   HTTP    ┌───────────────┐
-                                              │ worker (same image as api,    │ ────────▶ │ fake-whatsapp │
-                                              │ scale it out independently)   │           │ (fails on     │
-                                              │ events · issue jobs · sweeps  │           │  purpose)     │
-                                              └───────────────────────────────┘           └───────────────┘
-                                                        │ writes PDFs
-                                                        ▼
-                                               certs volume (S3 in production)
+Browser ─▶ web (nginx) ─▶ api (Express) ──▶ PostgreSQL   source of truth
+                              │  event "batch.approved"
+                              ▼
+                           Redis (BullMQ queues, live updates, rate limits)
+                              ▼
+                  worker (same image, scales on its own) ─▶ fake WhatsApp   (fails on purpose)
 ```
-
-**Batch lifecycle:** `DRAFT → IN_REVIEW → APPROVED → ISSUING → COMPLETED`, with side exits
-`CHANGES_REQUESTED` (back to the centre, then resubmit) and `REJECTED`. While `IN_REVIEW` it sits at
-a step taken from the `WorkflowStep` rows (district → quality for 50+ → state).
-
-**What happens when the state office approves (the event-driven part):**
-1. The API commits the approval and the audit row in one transaction, then answers immediately.
-2. It queues a `batch.approved` event (BullMQ). The approve click never waits for PDFs or WhatsApp.
-3. A worker turns that event into one `issue` job per candidate.
-4. Each `issue` job: create the certificate (unique per candidate) → make the PDF → send the WhatsApp
-   message → record the attempt → mark delivered. On failure it is retried with exponential backoff;
-   after all attempts it is marked `FAILED` and the state office can retry it.
-5. When every candidate is done, the batch becomes `COMPLETED`. Everyone watching sees each change live.
+`DRAFT → IN_REVIEW → APPROVED → ISSUING → COMPLETED`, with side exits `CHANGES_REQUESTED` and `REJECTED`.
+When the state office approves: the API saves the decision and its audit row in one transaction and answers at
+once; a worker then makes one certificate per candidate (PDF + WhatsApp, with retries). Everyone watching sees each
+change live.
 
 ---
 
-## 4. Key technical decisions, with reasons
+## 3. How every requirement is met
 
-| Decision | Why |
-|---|---|
-| **BullMQ on Redis** as the queue | Redis is already needed (cache, pub/sub, rate limits), so no second system to run. It gives durable jobs, retries with backoff, job ids for de-duplication, rate limiting and repeatable jobs. Kafka/RabbitMQ would be more to operate for no benefit at this scale |
-| **Postgres is the source of truth; the queue is only a to-do list** | If Redis loses everything, a 30-second **sweep** re-offers every approved batch from the database. Nothing is lost, and every job is idempotent so re-offering is harmless |
-| **Row lock on the batch** (`FOR UPDATE`) for every decision | Simple and correct for "two officers at once". The second request waits, then sees the new state. Cheaper and safer than inventing optimistic-retry logic |
-| **Idempotency everywhere in issuing** | Retries, duplicate events, two workers, a restart mid-job: none can make a second certificate or message. The WhatsApp call carries the certificate id as an *idempotency key*; the provider de-duplicates, which covers the nasty case where a message was delivered but the reply was lost |
-| **Redis pub/sub + SSE** for live updates | Pub/sub fans an event out to every API instance; each pushes to its own browsers. Events carry only ids; the browser re-fetches through permission-checked endpoints, so the stream cannot leak data. Pub/sub is fire-and-forget, which is fine for a UI hint (anything important goes through the durable queue) |
-| **Verify reads the database every time** | The brief says a cancelled certificate must never look genuine. A cache could show "valid" for a few seconds after cancellation. One indexed lookup is cheap, and the endpoint is rate limited. (If load ever demands it: a read replica, not a cache.) |
-| **Rules are database rows** (`Setting`, `WorkflowStep`), cached in Redis for 15 s | The brief leaves thresholds open; they will change. A database edit takes effect within seconds with no redeploy. The database rejects nonsense (e.g. 0 approvals). If Redis is down, it reads the database directly |
-| **Standard columns on every table + soft delete** (`isActive`) | `id`, `createdAt`, `updatedAt`, `isActive`, `createdById`, `updatedById`, `meta` (JSON) everywhere, so adding things is routine. Soft delete is applied in one place (`db.ts`): reads hide inactive rows and `delete()` becomes "set inactive". Uniqueness only counts active rows (partial indexes). `AuditLog` is the exception: append-only, enforced by a database trigger |
-| **API and worker share one image** | One build, two commands. They scale independently (`docker compose up -d --scale worker=3`) and neither keeps state in memory, so any instance can restart at any moment |
-| **Signed download links (HMAC)** | Nothing to store, unguessable, and a retried job rebuilds the same link |
-| **No CORS** | The browser only talks to its own origin (nginx), which forwards `/api`. Cross-origin calls are refused |
-| **CSV, validated all-or-nothing in one transaction** | Centres see every problem at once and can never end up with half a batch |
-
----
-
-## 5. Changing the rules without a redeploy
-
-Everything below is a database edit; the running API picks it up within ~15 seconds.
-
-```sql
--- How many district officers must agree?            (default 2)
-UPDATE "WorkflowStep" SET "requiredApprovals" = 3 WHERE key = 'DISTRICT_REVIEW';
-
--- What is a "big batch"?                              (default 50)
-UPDATE "WorkflowStep" SET condition = '{"minCandidates": 30}' WHERE key = 'QUALITY_REVIEW';
-
--- How long may a batch wait at a step? (minutes)      (default 2880 = 48 h). For the demo:
-UPDATE "WorkflowStep" SET "slaMinutes" = 1 WHERE key = 'DISTRICT_REVIEW';
-
--- Keep approvals when a sent-back batch is resubmitted? (default true = discard them)
-UPDATE "Setting" SET value = 'false' WHERE key = 'resubmit.resetApprovals';
-```
-Run them with: `docker compose exec postgres psql -U certiflow -d certiflow`. The "Live rules"
-panel in the web app shows the current values. Adding a **new step** is inserting a `WorkflowStep` row.
-
-Two honest notes: editing a step changes batches **already in review** immediately (publish a new
-`workflowVersion` and point `workflow.activeVersion` at it if you only want it for new batches), and
-the scan interval setting (`escalation.scanIntervalSeconds`) is read when a worker starts.
-
----
-
-## 6. Tests
-
-137 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
-proven (unique constraints, row locks, queues) live there. They use their own database
-(`certiflow_test`, recreated every run) and their own Redis db and queue prefix, so they never
-touch demo data or get picked up by the running worker. They run the real queue with an in-process
-worker and a WhatsApp stand-in that fails, times out and "delivers but loses the reply".
-
-```bash
-docker compose up -d postgres redis
-cd backend && npm install && npm test
-```
-| File | What it proves |
-|---|---|
-| `intake.test.ts` | Moment 1; replace-not-append; one person per course; centres cannot touch each other's batches |
-| `workflow.test.ts` | The chain base and step chain on their own; **adding a new approval step by inserting a row**; Moments 2 and 6; officer names hidden from centres; step order and the 49/50 boundary; rules-as-data edits; wrong role/district/step refused; withdraw; reject; audit trail; trace ids; live events |
-| `issuance.test.ts` | Moment 3; worker restart mid-batch; lost-event recovery; concurrent duplicate jobs; DB unique constraints; WhatsApp outage then retry |
-| `verify.test.ts` | Moment 4; public verify privacy; rate limit; download link security; cancelled = never sent |
-| `overdue.test.ts` | Moment 5; flagged once; SLA is a database value |
-| `login.test.ts` | Email + password sign-in; no hint which emails exist; brute-force limits; hashes only, never shown; removed people locked out |
-| `auth.test.ts`, `platform.test.ts`, `database.test.ts`, `config.test.ts` | Tampered/forged/expired tokens; role checks; headers; soft delete; DB constraints; config caching |
-
-**I checked the tests can fail:** I deliberately removed the row lock and made the WhatsApp
-idempotency key random; the matching tests failed both times (and only after I strengthened the
-two-officer race test to run on 12 batches at once, because the original passed by timing luck).
-`node scripts/smoke.mjs` plays the full journey against the running containers.
-
-**Not automated:** the React UI (checked by hand in a browser); load testing.
-
----
-
-## 7. How the code is organised: every flow is a chain of small handlers
-
-The backend uses one idea throughout, the **chain of responsibility**. A request travels down a line of
-small handlers; each does **one job** and then does one of three things:
-
-| A handler... | by... | meaning |
+| Requirement | How | Proof |
 |---|---|---|
-| carries on | `return false` | "I checked / did my part; pass it to the next one" |
-| finishes the work | `return true` | "I dealt with it; stop here" |
-| refuses | `throw` (e.g. `notFound()`, `forbidden()`) | "this request is rejected; nothing further runs" |
+| **1. Bad spreadsheet rows** | Every row is checked and **every** problem reported by row; saved only if there are none, in **one transaction** | `intake.test.ts` |
+| **2. Two officers at once** | The batch row is **locked** (`FOR UPDATE`), so the second request sees the first one's result | `workflow.test.ts` (12 batches raced at once) |
+| **3. 60 candidates, flaky WhatsApp** | Queue + retries, and every step is **safe to repeat**: one certificate per candidate, one message per certificate | `issuance.test.ts` |
+| **4. Cancelled certificate** | Verify reads the database every time (**no cache**), so the next lookup says cancelled; cancelled ones are never sent or downloadable | `verify.test.ts` |
+| **5. Batch sits too long** | Scheduled scan against each step's time limit, flagged once, audited, shown in **Stuck** | `overdue.test.ts` |
+| **6. Sent back and resubmitted** | The decision in section 1, as a setting, tested both ways | `workflow.test.ts` |
+| *Acting at a step not yours / as someone else* | Role, district and step checked **on the server** in the decision chain; the token holds only the user id and the role is re-read from the database every request | `workflow.test.ts`, `auth.test.ts` |
+| *Two certificates, or a shared number* | `UNIQUE(candidate)`, numbers from a **database sequence**, repeat-safe jobs | `issuance.test.ts` |
+| *Cancelled shown as genuine* | See 4 | `verify.test.ts` |
+| *A stranger gets someone's certificate or details* | Random verify code, signed download links, rate-limited public lookup, masked names and phones, "not found" (not "forbidden") across districts and centres; centres see an officer's **role**, never their name | `verify.test.ts`, `workflow.test.ts` |
+| *An untraceable decision* | Every action writes an audit row (who, what, when, why) **in the same transaction**; the database **refuses to edit, delete or truncate** it; a request id follows a batch from the API into the worker | `workflow.test.ts` |
 
-The request's data travels in a context object, so handlers keep no state and each chain is built once.
-The base class is in `backend/src/chain.ts` (about 20 lines). **Every flow reads as a list of handlers:**
+---
 
-| Flow | The chain (in order) | File |
-|---|---|---|
-| **Approval path** (built from database rows) | district review → quality review (50+ only) → state approval | `workflow.ts` |
-| **A decision** (approve / send back / reject) | load batch → can you see it? → is it in review? → find its step → is it your turn? → approve / send back / reject | `workflow.ts` |
-| **Making a certificate** | load → create certificate → stop if cancelled → stop if already sent → make PDF → send WhatsApp → mark delivered → complete the batch | `issuance.ts` |
-| **Sign-in** | rate limit → find the person → check the password → issue a token | `routes/auth.ts` |
-| **Spreadsheet upload** | own the batch? → editable? → read and check rows → anyone in another batch? → save all | `routes/batches.ts` |
-| **One spreadsheet row** | name → phone → course → marks → duplicate in sheet → accept | `csv.ts` |
-| **Public verify** | rate limit → clean the code → find the certificate → describe it | `routes/certificates.ts` |
-| **Download a certificate** | (check the signed link, or check the person may see it) → find → not cancelled → send the PDF | `routes/certificates.ts` |
+## 4. What we did beyond the basics
 
-(Express's own request pipeline, `helmet → body parser → request id → routes → 404 → error handler`, is the
-same pattern.) Things that are tools, not flows (the database client, config, the PDF drawing, the WhatsApp
-client) are plain modules the handlers use.
+- **The database enforces the rules, not only the code.** Unique keys, a sequence for certificate numbers, CHECK
+  rules, and an append-only audit table (a trigger refuses changes). Bugs in our code cannot create a duplicate.
+- **Proven, not assumed.** I deliberately broke the row lock, the WhatsApp idempotency key, the soft-delete filter and
+  the login limits to confirm the tests fail. That showed my first race test passed by luck, so I strengthened it.
+- **Exactly-once even when WhatsApp lies.** The provider can deliver and then lose its reply. Every send carries the
+  certificate id as an idempotency key, so the retry cannot send a second message. The fake provider reproduces this.
+- **Postgres is the truth; Redis is a to-do list.** If Redis loses everything, a sweep every 30 s re-offers approved
+  batches from the database. Tested.
+- **Every flow is a chain of small handlers** (section 5), so adding a feature is adding a handler.
+- **Rules are data.** Approvals needed, thresholds, time limits and **the approval path itself** live in database
+  rows. A new approval step is one inserted row (tested end to end).
+- **Privacy by design.** Random lookup code instead of the guessable number, no cache on verify, signed links,
+  hidden officer names, masked phones, 404 instead of 403.
+- **Real sign-in.** Salted scrypt hashes, the same answer and cost for "wrong password" and "unknown email", and brute-force
+  limits that parallel guessing cannot get around (tested).
+- **Soft delete in one place** (`isActive`, applied centrally) and standard columns on every table.
+- **Found by measuring.** Six open tabs froze page loads because each held a live connection and browsers allow about
+  six per site. I counted them on the server, then made all tabs share one stream.
+- **Honest deployment plan.** I measured PDF generation (about 6 ms each) to show the real bottleneck at peak is the
+  WhatsApp provider's limits, not our code.
 
-### Adding a feature = write a handler, add it to the chain
-Each chain is declared in one place, as a list. Examples:
+---
 
+## 5. Code organisation: a chain of small handlers
+
+A request travels down a line of handlers (`backend/src/chain.ts`, about 20 lines). Each does **one job**, then
+*carries on* (`return false`), *finishes* (`return true`), or *refuses* (`throw`). Data travels in a context object,
+so handlers hold no state.
+
+| Flow | The chain |
+|---|---|
+| Approval path (built from database rows) | district → quality (50+) → state |
+| A decision (`workflow.ts`) | load → can you see it? → in review? → its step → your turn? → approve / send back / reject |
+| Making a certificate (`issuance.ts`) | load → create → stop if cancelled → stop if sent → PDF → WhatsApp → mark delivered → complete batch |
+| Sign-in (`routes/auth.ts`) | rate limit → find user → check password → token |
+| Spreadsheet upload (`routes/batches.ts`, `csv.ts`) | own batch → editable → check each row → other batches → save all |
+| Verify / download (`routes/certificates.ts`) | shared handlers for the public link and the staff download |
+
+**To add a feature, write a handler and add it to the list. Nothing else changes.**
 ```ts
-// 1. Block sign-in for people who are suspended: add ONE handler, then put it in the list.
 class CheckNotSuspended extends Handler<LoginContext> {
   protected process(c: LoginContext) {
     if (c.user?.suspended) throw forbidden("this account is suspended");
@@ -248,104 +127,45 @@ class CheckNotSuspended extends Handler<LoginContext> {
   }
 }
 const loginChain = chainOf<LoginContext>(new RateLimit(), new FindUser(), new CheckNotSuspended(), new CheckPassword(), new IssueToken());
-
-// 2. Also tell the candidate by SMS when WhatsApp keeps failing: a handler between "send" and "mark delivered".
-// 3. Reject sheets where marks are all identical: a handler in the row chain, before AcceptRow.
-// 4. A new APPROVAL step (e.g. "Audit review"): no handler to write at all, just insert a WorkflowStep row.
 ```
-No existing handler changes, and each new one can be tested on its own (see `workflow.test.ts`, "the generic chain").
-
-### Where to look
-```
-backend/src/
-  chain.ts          the Handler base class + the errors a handler throws to refuse
-  workflow.ts       the approval engine: steps chain, decision chain, entry points (submit / decide / withdraw)
-  issuance.ts       the certificate chain, the WhatsApp client, retries and recovery
-  csv.ts            spreadsheet row checks (a chain)
-  auth.ts           login tokens, password hashing, "who is calling" and role checks
-  view.ts           the read side: what each person may see, and which buttons make sense for them
-  routes/           auth (login chain) · batches (upload chain) · certificates (verify/download chains) · system (health, rules, live stream)
-  workers.ts        the background consumers and the repeating sweep / overdue scan
-  redis.ts          everything on Redis: client, rate limiting, job queues, live updates
-  db.ts             Prisma client with central soft delete, plus the append-only audit writer
-  config.ts         validated settings + the logger;  config-store.ts reads the rules from the database
-  pdf.ts            the certificate PDF, QR code and signed download links
-  app.ts · server.ts · worker.ts · seed.ts     Express app, the two entry points, demo data
-backend/prisma/     schema.prisma + migrations (hand-written SQL is marked "Hand-written")
-backend/test/       the tests (helpers.ts has the shared setup)
-fake-whatsapp/      provider stand-in with failures and idempotency
-web/src/            React: App (sign-in, rules panel), Dashboard, BatchDetail, Verify, plus api / live / format helpers
-scripts/smoke.mjs   end-to-end run against the live system
-```
-Code style is enforced with Prettier: `npm run format` (and `npm run format:check`) in `backend/` and `web/`.
+Tools that are not flows (database client, config, PDF drawing, WhatsApp client) are plain modules the handlers use.
 
 ---
 
-## 8. AI usage
+## 6. Tests
 
-This project was built with an AI coding assistant (Claude Code) working from the problem statement.
-It wrote the code; I directed it, reviewed the decisions above, and made the product choices.
-How the output was checked, not just trusted:
-- **Everything was run:** typechecks, 137 tests (repeatedly, to expose flakiness), the full stack in
-  Docker, `scripts/smoke.mjs`, and the UI in a real browser.
-- **Tests were tested:** deliberate bugs (no row lock, random idempotency key, disabled soft-delete
-  filter) were introduced to confirm the right tests fail.
-- **Real bugs found this way** (all fixed): flaky tests caused by a seed script disconnecting the shared
-  database engine when imported; two PDF writers in one process picking the same temp-file name;
-  Express refusing to serve files from a `.data` folder (it hides dot-folders); my own test that
-  failed 1 time in 16 because it "altered" a signature that already ended in the character it used;
-  a two-officer race test that passed without the lock it was meant to prove.
-- **Claims I could not verify were not made:** see the next section.
+**137 automated tests** on the **real** Postgres and Redis (not mocks), in their own throwaway database and queue
+namespace so they never touch demo data. They run the real queue with an in-process worker and a WhatsApp stand-in
+that fails, times out, and "delivers but loses the reply".
+```bash
+docker compose up -d postgres redis && cd backend && npm install && npm test
+```
+`node scripts/smoke.mjs` plays the whole journey against the running containers. Not automated: the React UI
+(checked by hand) and load testing.
 
 ---
 
-## 9. Known limitations and next steps (honest list)
+## 7. AI usage
 
-- **Sign-in is basic.** Email + password with hashing and brute-force limits, but **no** password reset or
-  change screen, no multi-factor, no single sign-on, and tokens last 8 hours and cannot be revoked
-  individually (removing a person does stop their token, since the person is re-read on every request).
-  For production I would put an OIDC identity provider in front. Also, the per-email attempt limit
-  means someone can deliberately lock a colleague out for 10 minutes by guessing wrongly (only wrong guesses count; a correct sign-in clears the counter).
-- **The seeded accounts share one default demo password** until you set `SEED_PASSWORD`; the seed warns
-  about this. Never run a real deployment on it.
-- **The demo user list is public** (`GET /auth/demo-users` feeds the shortcut dropdown), so in demo mode anyone can see
-  the seven names and roles, and can act as any of them. With `DEMO_MODE=false` those routes do not exist.
-- **No admin screen for rules.** They are edited in SQL, so those edits are not in the audit log
-  (the standard `updatedById` columns exist but are not filled for SQL edits). Next step: a state-office
-  screen that writes through the API and the audit log.
-- **Escalation is in-app only** (Stuck tab, live banner, audit entry). There is no email/SMS/Slack yet.
-- **CSV only** (no .xlsx); Indian mobile numbers only; max 2,000 rows per upload.
-- **Roles are a database enum:** a brand-new *kind* of person needs one migration. Changing which role
-  handles a step, how many approvals, SLAs and thresholds does not.
-- **`createdById` / `updatedById`** are filled on most writes made by a signed-in user, but not on
-  system writes or SQL edits, and they are plain columns, not foreign keys.
-- **Soft delete is a flag**, so the moment of deletion is not stored (only `updatedAt`).
-- **PDFs live on a shared Docker volume**, which works on one host only. Production uses object storage
-  (see DEPLOYMENT.md); the code touches files in one place (`pdf.ts`).
-- **Delivery retry window is short** (8 attempts, minutes) to keep the demo snappy. A real WhatsApp outage
-  can last hours; production should lengthen the backoff (one environment variable) and pause the queue.
-- **Many tabs share one live stream** (a leader tab holds it and relays to the others through the browser's
-  Web Locks and BroadcastChannel APIs). Browsers cap plain-HTTP connections per site at about 6, and one stream per
-  tab froze page loads once 6 tabs were open. Not covered by automated tests (browser-only); checked by hand.
-- **Live updates are best-effort** (the browser reconnects and re-fetches, so nothing is permanently missed).
-- **The rate limiter fails open** if Redis is down (availability over strictness for a public page).
-- **The worker container has no health check**; it relies on `restart: unless-stopped`.
-- **Lists are capped at 200 batches** and not paginated; a batch page loads all its candidates.
-- **No metrics endpoint yet** (DEPLOYMENT.md describes what to export and alert on).
-- **Not load tested.** The sizing in DEPLOYMENT.md is reasoned from one measurement (PDF generation
-  ≈ 6 ms on an Apple M1 core) and the provider's limits, not from a load test.
+Built with an AI coding assistant (Claude Code) working from the problem statement; I directed it and made the
+product decisions above. Its output was checked, not trusted: everything was run (typechecks, tests repeatedly to expose
+flakiness, the full Docker stack, the smoke script, the UI in a browser), and the tests themselves were tested by
+introducing deliberate bugs. Real bugs found this way and fixed: tests made flaky by a seed script that closed the shared
+database engine, two PDF writers choosing the same temp file, Express hiding files under a `.data` folder, my own
+test that failed 1 time in 16, and a race test that passed without the lock it was meant to prove.
 
 ---
 
-## 10. A 2-minute demo script
+## 8. Known limitations (honest list)
 
-1. **(0:00)** `docker compose up --build`, open http://localhost:8080. As **Anika**, create a batch, upload
-   `bad-rows.csv`: show the row-by-row errors and that nothing was saved. Upload `big-60.csv`, **Submit**.
-2. **(0:30)** Switch to **Dev**: Approve. **Meera**: Approve. Show "2 of 2" and the batch moving to quality
-   (60 ≥ 50). Switch to **Isha** (other district): she sees nothing.
-3. **(0:55)** **Neha**: Approve. **Farah**: Approve. Watch the batch go *Issuing → Completed* **live** and
-   certificates flip to *Sent* (some show "2 tries"; the fake WhatsApp fails ~30% of the time).
-4. **(1:20)** Open a certificate's verification link in a private window (no login): **Valid**.
-   As Farah, enter a reason and **Cancel** it; refresh the link: **No longer valid**.
-5. **(1:40)** Show the **History** panel (who, when, why) and the **Live rules** panel; mention rules are
-   database rows. Optional: `UPDATE "WorkflowStep" SET "slaMinutes" = 1 …` then show it appear in **Stuck**.
+- **Sign-in is basic:** no password reset, no multi-factor, no single sign-on; tokens last 8 h; someone can lock a
+  colleague out for 10 minutes by guessing wrongly. The seeded accounts share one demo password until `SEED_PASSWORD` is set.
+- **Rules are edited in SQL** (no admin screen), so those edits are not in the audit log.
+- **Escalation is in-app only** (Stuck tab, live banner, audit); no email or SMS yet.
+- **Identity is phone + course.** No national id: two people sharing a phone, or one person with two phones, are not caught.
+- **A new kind of role** needs a migration and a few edits; steps, counts and limits do not. Steps run in a line (no parallel steps).
+- **CSV only**, Indian mobile numbers only, 2,000 rows per upload.
+- **PDFs live on a shared Docker volume** (one host). Production uses object storage; the code touches files in one place (`pdf.ts`).
+- **Delivery retries last minutes** (8 tries), to keep the demo quick. A real outage can last hours.
+- **Not load tested.** The deployment sizing is reasoned from one measurement and the provider's limits.
+- **Demo mode** (on by default in Docker Compose, because the brief's demo needs it) lists the seeded users publicly and lets anyone act as them. Set `DEMO_MODE=false` for real use.

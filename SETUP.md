@@ -91,8 +91,14 @@ docker compose exec postgres psql -U certiflow -d certiflow
 ```sql
 UPDATE "WorkflowStep" SET "requiredApprovals" = 3 WHERE key = 'DISTRICT_REVIEW';
 UPDATE "WorkflowStep" SET "slaMinutes" = 1 WHERE key = 'DISTRICT_REVIEW';
+-- what counts as a "big batch" (default 50)
+UPDATE "WorkflowStep" SET condition = '{"minCandidates": 30}' WHERE key = 'QUALITY_REVIEW';
+-- keep approvals when a sent-back batch is resubmitted (default: discard them)
+UPDATE "Setting" SET value = 'false' WHERE key = 'resubmit.resetApprovals';
 ```
-More examples in the README, section 5. The "Live rules" panel in the app shows the current values.
+Adding a **new step** is inserting a `WorkflowStep` row (see `backend/test/workflow.test.ts`, "ADDING A STEP").
+Notes: editing a step also affects batches already in review; the scan interval setting is read when a
+worker starts. The "Live rules" panel in the app shows the current values.
 
 **Make WhatsApp misbehave** (it is flaky by default, about 30% of calls fail):
 ```bash
