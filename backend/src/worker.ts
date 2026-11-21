@@ -1,6 +1,6 @@
 process.env.SERVICE_NAME = "worker";
 
-import { prisma } from "./db";
+import { disconnectDb, prisma } from "./db";
 import { logger } from "./logger";
 import { redis } from "./redis";
 
@@ -16,7 +16,7 @@ async function main() {
   async function shutdown(signal: string) {
     logger.info({ signal }, "worker shutting down");
     clearInterval(heartbeat);
-    await prisma.$disconnect();
+    await disconnectDb();
     redis.disconnect();
     process.exit(0);
   }

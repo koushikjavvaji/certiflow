@@ -1,5 +1,23 @@
-// Phase 1 schema: who the people are and which district / centre they belong to.
-// Later phases add their own tables in their own migrations (Batch, Candidate, ...).
+// CertiFlow schema (Phase 1).
+//
+// Conventions used by EVERY table, so adding a new table or field later is routine:
+//   id          uuid primary key (not guessable, safe to expose in URLs)
+//   createdAt   set automatically
+//   updatedAt   maintained automatically by Prisma
+//   deletedAt   SOFT DELETE: null = active. Rows are never physically removed; the
+//               Prisma client in src/db.ts hides deleted rows and turns delete() into
+//               an update of deletedAt.
+//   createdById / updatedById   who made / last changed the row (soft references to
+//               User.id: plain columns, not foreign keys, so seed data and system jobs
+//               can write rows with no user, and history survives a user's removal)
+//   meta        free-form JSON for extra attributes. A new attribute that needs no
+//               querying can be stored here with NO migration and NO redeploy.
+//
+// Append-only tables added later (AuditLog, Approval) deliberately do NOT get
+// updatedAt/deletedAt: a decision record must never be edited or hidden.
+//
+// Hand-written SQL (partial unique indexes, CHECK constraints) lives in the migration
+// file, because Prisma cannot express it here. Search "Hand-written" in migrations/.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,11 +35,23 @@ enum Role {
   STATE
 }
 
+// Whether a workflow step is limited to officers of the batch's own district.
+enum StepScope {
+  DISTRICT // only users whose districtId matches the batch's centre district
+  ANY // any user holding the step's role (quality team, state office)
+}
+
 // A region. Officers only act on batches from centres in their own district.
+// (name is unique among ACTIVE rows: partial index in the migration)
 model District {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
-  createdAt DateTime @default(now())
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?   @db.Uuid
+  updatedById String?   @db.Uuid
+  meta        Json      @default("{}")
 
   centres Centre[]
   users   User[]
@@ -29,10 +59,15 @@ model District {
 
 // A training centre. Belongs to exactly one district.
 model Centre {
-  id         String   @id @default(uuid()) @db.Uuid
-  name       String
-  districtId String   @db.Uuid
-  createdAt  DateTime @default(now())
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  districtId  String    @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?   @db.Uuid
+  updatedById String?   @db.Uuid
+  meta        Json      @default("{}")
 
   district District @relation(fields: [districtId], references: [id])
   users    User[]
@@ -42,22 +77,77 @@ model Centre {
 
 // The demo people. No passwords: reviewers switch between them (see /auth/demo-login).
 //
-// Shape rules, enforced by a CHECK constraint added to the migration SQL
-// (Prisma cannot express CHECK constraints in the schema file):
+// Shape rules, enforced by a CHECK constraint in the migration:
 //   CENTRE            -> centreId set,   districtId null
 //   DISTRICT_OFFICER  -> districtId set, centreId null
 //   QUALITY, STATE    -> both null (they work across all districts)
 model User {
-  id         String   @id @default(uuid()) @db.Uuid
-  name       String
-  role       Role
-  districtId String?  @db.Uuid
-  centreId   String?  @db.Uuid
-  createdAt  DateTime @default(now())
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  role        Role
+  districtId  String?   @db.Uuid
+  centreId    String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?   @db.Uuid
+  updatedById String?   @db.Uuid
+  meta        Json      @default("{}")
 
   district District? @relation(fields: [districtId], references: [id])
   centre   Centre?   @relation(fields: [centreId], references: [id])
 
   @@index([districtId])
   @@index([centreId])
+}
+
+// Tunable knobs as DATA, e.g. "workflow.activeVersion", "resubmit.resetApprovals".
+// Editing a row in the database changes behaviour within seconds: no code change,
+// no redeploy (readers cache for a short time, see src/config-store.ts).
+// key is unique among ACTIVE rows (partial index in the migration).
+model Setting {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String
+  value       Json
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?   @db.Uuid
+  updatedById String?   @db.Uuid
+  meta        Json      @default("{}")
+}
+
+// The approval path as DATA. One row = one review step. Changing "how many district
+// officers must agree", the SLA, the order, or the role of a step is a database edit.
+//
+//   workflowVersion   rules are versioned; a batch will remember the version it started
+//                     under (Phase 2), so editing rules never strands a batch mid-flight.
+//                     Setting "workflow.activeVersion" says which version new batches use.
+//   position          order within the version (1, 2, 3 ...)
+//   key               stable machine name, e.g. DISTRICT_REVIEW
+//   role / scope      who may act at this step, and whether they must share the district
+//   requiredApprovals how many DIFFERENT people must approve before the batch moves on
+//   slaMinutes        how long a batch may wait here before escalation (null = no limit)
+//   condition         when the step applies. null = always. {"minCandidates": 50} =
+//                     only batches with at least 50 candidates (the "big batch" rule)
+model WorkflowStep {
+  id                String    @id @default(uuid()) @db.Uuid
+  workflowVersion   Int       @default(1)
+  position          Int
+  key               String
+  name              String
+  role              Role
+  scope             StepScope @default(ANY)
+  requiredApprovals Int       @default(1)
+  slaMinutes        Int?
+  condition         Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+  createdById       String?   @db.Uuid
+  updatedById       String?   @db.Uuid
+  meta              Json      @default("{}")
+
+  @@index([workflowVersion, position])
 }

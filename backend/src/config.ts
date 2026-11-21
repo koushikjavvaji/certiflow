@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-// Every setting comes from the environment and is validated once at startup,
-// so a misconfigured container fails immediately instead of misbehaving later.
+// Every setting comes from the environment and is validated once at startup, so a
+// misconfigured container fails immediately instead of misbehaving later.
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
@@ -15,8 +15,7 @@ const schema = z.object({
 
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
-  // eslint-disable-next-line no-console
-  console.error("Invalid environment configuration:", z.prettifyError(parsed.error));
+  console.error("Invalid environment configuration:\n" + z.prettifyError(parsed.error));
   process.exit(1);
 }
 

@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { margin: 0; background: Canvas; color: CanvasText; }
+main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+h1 { margin: 0; font-size: 28px; }
+h2 { margin: 0 0 4px; font-size: 18px; }
+h3 { margin: 20px 0 6px; font-size: 15px; }
+.sub, .muted { color: GrayText; margin: 4px 0 0; }
+.card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 10px; padding: 18px 20px; margin-top: 20px; }
+label { display: block; font-size: 13px; color: GrayText; margin-bottom: 6px; }
+select { width: 100%; padding: 9px 10px; font-size: 15px; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 30%, transparent); background: Canvas; color: CanvasText; }
+.you { margin: 14px 0 0; font-size: 16px; }
+.error { color: #c0392b; margin: 10px 0 0; }
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent); vertical-align: top; }
+th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: GrayText; }
+.settings { padding-left: 18px; margin: 0; font-size: 14px; line-height: 1.8; }
+code { font-size: 13px; }

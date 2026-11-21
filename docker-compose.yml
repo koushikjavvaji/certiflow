@@ -52,8 +52,8 @@ services:
       timeout: 3s
       retries: 10
 
-  # The API applies pending migrations and the (idempotent) demo seed on startup,
-  # then serves requests. It holds no state in memory, so it can be scaled out.
+  # The API applies pending migrations and the (idempotent) demo seed on startup, then
+  # serves requests. It keeps no state in memory, so it can be scaled out and restarted.
   api:
     build: ./backend
     command: ["sh", "-c", "npx prisma migrate deploy && node dist/seed.js && node dist/server.js"]

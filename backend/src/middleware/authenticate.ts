@@ -29,6 +29,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return;
   }
 
+  // Soft-deleted users are invisible here, so deleting a user also kills their tokens.
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, role: true, districtId: true, centreId: true },

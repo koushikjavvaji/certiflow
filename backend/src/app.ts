@@ -1,19 +1,25 @@
 import { randomUUID } from "node:crypto";
-import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { ZodError } from "zod";
+import { config } from "./config";
 import { logger } from "./logger";
-import { authRouter } from "./routes/auth";
+import { createAuthRouter } from "./routes/auth";
+import { configRouter } from "./routes/config";
 import { healthRouter } from "./routes/health";
 
-export function createApp() {
+export interface AppOptions {
+  demoMode?: boolean;
+}
+
+export function createApp({ demoMode = config.demoMode }: AppOptions = {}) {
   const app = express();
 
   app.disable("x-powered-by");
   app.use(helmet());
-  app.use(cors());
+  // No CORS: the browser only talks to its own origin (nginx in Docker, the Vite
+  // proxy in dev), which forwards /api to this server. Cross-origin calls are refused.
   app.use(express.json({ limit: "1mb" }));
 
   // Request id = correlation id. Returned to the caller and attached to every log line.
@@ -30,7 +36,8 @@ export function createApp() {
   );
 
   app.use(healthRouter);
-  app.use(authRouter);
+  app.use(createAuthRouter(demoMode));
+  app.use(configRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not found" });
@@ -41,9 +48,10 @@ export function createApp() {
       res.status(400).json({ error: "invalid input", issues: err.issues });
       return;
     }
-    // Malformed JSON body etc.
-    if (typeof err === "object" && err !== null && "status" in err && err.status === 400) {
-      res.status(400).json({ error: "bad request" });
+    // Client errors raised by body parsing: malformed JSON (400), body too large (413)...
+    const status = typeof err === "object" && err !== null && "status" in err ? Number(err.status) : 0;
+    if (status >= 400 && status < 500) {
+      res.status(status).json({ error: status === 413 ? "payload too large" : "bad request" });
       return;
     }
     req.log.error({ err }, "unhandled error");
