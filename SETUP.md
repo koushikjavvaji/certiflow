@@ -72,7 +72,7 @@ never touch demo data.
 docker compose up -d postgres redis      # if the stack is not already running
 cd backend
 npm install
-npm test                                 # 123 tests, about 25 seconds
+npm test                                 # 137 tests, about 30 seconds
 npm run typecheck
 ```
 They create `certiflow_test` from scratch on every run (migrations + seed), so a fresh clone needs no

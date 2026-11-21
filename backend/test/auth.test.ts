@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
-import { authenticate, requireRole } from "../src/middleware/authenticate";
-import { app, bearer, DEMO_USER_IDS, tokenFor } from "./helpers";
+import { authenticate, requireRole } from "../src/auth";
+import { DEMO_USER_IDS, app, bearer, tokenFor } from "./helpers";
 
 const SECRET = "test-secret-test-secret-test-secret-123456";
 const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -38,7 +38,9 @@ describe("demo login and identity", () => {
   });
 
   it("rejects oversized request bodies instead of crashing", async () => {
-    const res = await request(app).post("/auth/demo-login").send({ userId: "x".repeat(2 * 1024 * 1024) });
+    const res = await request(app)
+      .post("/auth/demo-login")
+      .send({ userId: "x".repeat(2 * 1024 * 1024) });
     expect(res.status).toBe(413);
   });
 });
@@ -53,7 +55,13 @@ describe("acting as someone else is impossible (tampered tokens)", () => {
   it("changing the user id inside a valid token breaks the signature -> 401", async () => {
     const [h, , s] = (await tokenFor(DEMO_USER_IDS.anika)).split(".");
     const payload = b64({ sub: DEMO_USER_IDS.farah, iss: "certiflow", iat: 1, exp: 9999999999 });
-    expect((await request(app).get("/me").set(bearer(`${h}.${payload}.${s}`))).status).toBe(401);
+    expect(
+      (
+        await request(app)
+          .get("/me")
+          .set(bearer(`${h}.${payload}.${s}`))
+      ).status,
+    ).toBe(401);
   });
 
   it("a corrupted signature -> 401", async () => {
@@ -104,7 +112,13 @@ describe("role checks happen on the server", () => {
     expect((await request(guarded).get("/state-only").set(farah)).status).toBe(200);
     expect((await request(guarded).get("/state-only").set(anika)).status).toBe(403);
     expect((await request(guarded).get("/officers").set(anika)).status).toBe(403);
-    expect((await request(guarded).get("/officers").set(bearer(await tokenFor(DEMO_USER_IDS.neha)))).status).toBe(200);
+    expect(
+      (
+        await request(guarded)
+          .get("/officers")
+          .set(bearer(await tokenFor(DEMO_USER_IDS.neha)))
+      ).status,
+    ).toBe(200);
   });
 
   it("anonymous callers get 401 before any role logic runs", async () => {

@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { getWorkflow, type WorkflowStepConfig } from "./config-store";
 import { prisma } from "./db";
-import { forbidden, notFound } from "./errors";
-import type { AuthUser } from "./middleware/authenticate";
+import { forbidden, notFound } from "./chain";
+import type { AuthUser } from "./auth";
 import { formatCode } from "./pdf";
 import { canActAtStep, canView } from "./workflow";
 
@@ -23,7 +23,8 @@ const maskPhone = (p: string) => `${p.slice(0, 3)}${"*".repeat(Math.max(0, p.len
 // Visibility of batches in LISTS (single batches go through canView).
 function visibleTo(user: AuthUser): Prisma.BatchWhereInput {
   if (user.role === "CENTRE") return { centreId: user.centreId ?? "00000000-0000-0000-0000-000000000000" };
-  if (user.role === "DISTRICT_OFFICER") return { centre: { districtId: user.districtId ?? "00000000-0000-0000-0000-000000000000" } };
+  if (user.role === "DISTRICT_OFFICER")
+    return { centre: { districtId: user.districtId ?? "00000000-0000-0000-0000-000000000000" } };
   return {};
 }
 
@@ -44,13 +45,18 @@ export async function listBatches(user: AuthUser, view: View) {
   });
   const ids = batches.map((b) => b.id);
   const [approvals, steps] = await Promise.all([
-    prisma.approval.findMany({ where: { batchId: { in: ids } }, select: { batchId: true, batchVersion: true, stepKey: true, officerId: true } }),
+    prisma.approval.findMany({
+      where: { batchId: { in: ids } },
+      select: { batchId: true, batchVersion: true, stepKey: true, officerId: true },
+    }),
     stepsFor(batches.map((b) => b.workflowVersion)),
   ]);
 
   const summaries = batches.map((b) => {
     const step = steps.get(b.workflowVersion)?.find((s) => s.key === b.currentStepKey);
-    const here = approvals.filter((a) => a.batchId === b.id && a.batchVersion === b.version && a.stepKey === b.currentStepKey);
+    const here = approvals.filter(
+      (a) => a.batchId === b.id && a.batchVersion === b.version && a.stepKey === b.currentStepKey,
+    );
     const iApproved = here.some((a) => a.officerId === user.id);
     const myTurn = b.status === "IN_REVIEW" && !!step && canActAtStep(user, step, { centre: b.centre });
     return {
@@ -83,14 +89,23 @@ export async function getBatchDetail(user: AuthUser, batchId: string) {
     prisma.candidate.findMany({ where: { batchId }, orderBy: { createdAt: "asc" } }),
     prisma.approval.findMany({ where: { batchId, batchVersion: batch.version } }),
     prisma.auditLog.findMany({ where: { batchId }, orderBy: { createdAt: "asc" }, take: 500 }),
-    prisma.certificate.findMany({ where: { batchId }, include: { candidate: { select: { name: true } }, _count: { select: { attempts: true } } }, orderBy: { number: "asc" } }),
+    prisma.certificate.findMany({
+      where: { batchId },
+      include: { candidate: { select: { name: true } }, _count: { select: { attempts: true } } },
+      orderBy: { number: "asc" },
+    }),
     getWorkflow(batch.workflowVersion),
   ]);
   // Who is who. A training centre must NOT learn which individual officer did what (that is
   // the officers' own profile); it sees the role instead ("District officer"), plus its
   // own name on its own actions. Staff see names, because accountability is their job.
-  const peopleIds = [...new Set([...approvals.map((a) => a.officerId), ...audit.map((a) => a.actorId).filter((x): x is string => !!x)])];
-  const people = await prisma.user.findMany({ where: { id: { in: peopleIds } }, select: { id: true, name: true, role: true } });
+  const peopleIds = [
+    ...new Set([...approvals.map((a) => a.officerId), ...audit.map((a) => a.actorId).filter((x): x is string => !!x)]),
+  ];
+  const people = await prisma.user.findMany({
+    where: { id: { in: peopleIds } },
+    select: { id: true, name: true, role: true },
+  });
   const known = new Map(people.map((p) => [p.id, p]));
   const hideNames = user.role === "CENTRE";
   const whoIs = (id: string | null, storedName: string | null): string => {
@@ -131,8 +146,17 @@ export async function getBatchDetail(user: AuthUser, batchId: string) {
       approvalsNeed: step?.requiredApprovals ?? null,
       createdAt: batch.createdAt,
     },
-    approvals: here.map((a) => ({ officer: whoIs(a.officerId, known.get(a.officerId)?.name ?? null), at: a.updatedAt })),
-    candidates: candidates.map((c) => ({ id: c.id, name: c.name, phone: mine ? c.phone : maskPhone(c.phone), courseCode: c.courseCode, marks: c.marks })),
+    approvals: here.map((a) => ({
+      officer: whoIs(a.officerId, known.get(a.officerId)?.name ?? null),
+      at: a.updatedAt,
+    })),
+    candidates: candidates.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: mine ? c.phone : maskPhone(c.phone),
+      courseCode: c.courseCode,
+      marks: c.marks,
+    })),
     certificates: certificates.map((c) => ({
       id: c.id,
       number: c.number,
@@ -144,7 +168,15 @@ export async function getBatchDetail(user: AuthUser, batchId: string) {
       cancelReason: c.cancelReason,
       verifyCode: showCodes ? formatCode(c.verifyCode) : undefined,
     })),
-    audit: audit.map((a) => ({ id: a.id, at: a.createdAt, actor: whoIs(a.actorId, a.actorName), action: a.action, reason: a.reason, metadata: a.metadata, correlationId: a.correlationId })),
+    audit: audit.map((a) => ({
+      id: a.id,
+      at: a.createdAt,
+      actor: whoIs(a.actorId, a.actorName),
+      action: a.action,
+      reason: a.reason,
+      metadata: a.metadata,
+      correlationId: a.correlationId,
+    })),
     actions,
   };
 }

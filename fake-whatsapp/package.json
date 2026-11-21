@@ -1,7 +1,0 @@
-{
-  "name": "certiflow-fake-whatsapp",
-  "version": "0.1.0",
-  "private": true,
-  "description": "Stand-in WhatsApp provider. Phase 1: accepts messages. Phase 4 adds failures and timeouts.",
-  "scripts": { "start": "node index.js" }
-}

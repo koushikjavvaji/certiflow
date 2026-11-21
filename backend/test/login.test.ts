@@ -1,15 +1,18 @@
 import { randomBytes } from "node:crypto";
-import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { rawPrisma } from "../src/db";
-import { hashPassword, verifyPassword } from "../src/password";
+import { hashPassword, verifyPassword } from "../src/auth";
 import { DEFAULT_SEED_PASSWORD, DEMO_EMAILS } from "../src/seed";
-import { app, bearer, DEMO_USER_IDS } from "./helpers";
+import { DEMO_USER_IDS, app, bearer } from "./helpers";
+import request from "supertest";
 
 // Each call comes from its own "IP" so these tests never trip the per-IP limit by accident.
 const login = (email: string, password: string, a = app) =>
-  request(a).post("/auth/login").set("x-forwarded-for", `192.0.2.${Math.floor(Math.random() * 250) + 1}-${randomBytes(2).toString("hex")}`).send({ email, password });
+  request(a)
+    .post("/auth/login")
+    .set("x-forwarded-for", `192.0.2.${Math.floor(Math.random() * 250) + 1}-${randomBytes(2).toString("hex")}`)
+    .send({ email, password });
 
 describe("signing in with email and password", () => {
   it("the right email and password give a working session for that person", async () => {
@@ -63,7 +66,9 @@ describe("signing in with email and password", () => {
   it("a removed (soft-deleted) person can no longer sign in, and old tokens stop working", async () => {
     const id = crypto.randomUUID();
     const email = `temp-${randomBytes(4).toString("hex")}@pragati.example`;
-    await rawPrisma.user.create({ data: { id, name: "Temp", email, role: "STATE", passwordHash: await hashPassword("Temp#Pass-12345") } });
+    await rawPrisma.user.create({
+      data: { id, name: "Temp", email, role: "STATE", passwordHash: await hashPassword("Temp#Pass-12345") },
+    });
     const ok = await login(email, "Temp#Pass-12345");
     expect(ok.status).toBe(200);
     expect((await request(app).get("/me").set(bearer(ok.body.token))).status).toBe(200);
@@ -99,7 +104,9 @@ describe("NEVER: brute-forcing a password", () => {
   it("successful sign-ins never count towards a lockout, and a correct sign-in wipes earlier typos", async () => {
     const email = `legit-${randomBytes(4).toString("hex")}@pragati.example`;
     const password = "Legit#Pass-98765";
-    await rawPrisma.user.create({ data: { name: "Legit", email, role: "STATE", passwordHash: await hashPassword(password) } });
+    await rawPrisma.user.create({
+      data: { name: "Legit", email, role: "STATE", passwordHash: await hashPassword(password) },
+    });
     for (let i = 0; i < 12; i++) expect((await login(email, password)).status).toBe(200); // 12 successes in a row
     for (let i = 0; i < 9; i++) expect((await login(email, `typo-${i}`)).status).toBe(401); // 9 typos...
     expect((await login(email, password)).status).toBe(200); // ...then the right password works
@@ -117,7 +124,11 @@ describe("NEVER: brute-forcing a password", () => {
 
   it("one caller hammering many different emails is limited too", async () => {
     const ip = `198.51.100.${randomBytes(3).toString("hex")}`;
-    const send = () => request(app).post("/auth/login").set("x-forwarded-for", ip).send({ email: `x${randomBytes(4).toString("hex")}@pragati.example`, password: "pw" });
+    const send = () =>
+      request(app)
+        .post("/auth/login")
+        .set("x-forwarded-for", ip)
+        .send({ email: `x${randomBytes(4).toString("hex")}@pragati.example`, password: "pw" });
     const statuses: number[] = [];
     for (let i = 0; i < 32; i++) statuses.push((await send()).status);
     expect(statuses.slice(0, 30).every((s) => s === 401)).toBe(true);
@@ -127,7 +138,10 @@ describe("NEVER: brute-forcing a password", () => {
 
 describe("NEVER: passwords stored or shown", () => {
   it("only a salted scrypt hash is stored, a different one for each person", async () => {
-    const users = await rawPrisma.user.findMany({ where: { id: { in: Object.values(DEMO_USER_IDS) } }, select: { passwordHash: true } });
+    const users = await rawPrisma.user.findMany({
+      where: { id: { in: Object.values(DEMO_USER_IDS) } },
+      select: { passwordHash: true },
+    });
     expect(users).toHaveLength(7);
     for (const u of users) {
       expect(u.passwordHash).toMatch(/^scrypt\$32768\$8\$1\$/);
@@ -167,7 +181,9 @@ describe("one account per email", () => {
   it("the database refuses two active people with the same email (any capitalisation); a removed one frees it", async () => {
     const email = `dup-${randomBytes(4).toString("hex")}@pragati.example`;
     const first = await rawPrisma.user.create({ data: { name: "A", email, role: "STATE" } });
-    await expect(rawPrisma.user.create({ data: { name: "B", email: email.toUpperCase(), role: "STATE" } })).rejects.toThrow();
+    await expect(
+      rawPrisma.user.create({ data: { name: "B", email: email.toUpperCase(), role: "STATE" } }),
+    ).rejects.toThrow();
     await rawPrisma.user.update({ where: { id: first.id }, data: { isActive: false } });
     await expect(rawPrisma.user.create({ data: { name: "C", email, role: "STATE" } })).resolves.toBeTruthy();
   });

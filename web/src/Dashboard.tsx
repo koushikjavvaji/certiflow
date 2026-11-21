@@ -6,9 +6,19 @@ import { useLive } from "./live";
 
 const TABS: Record<string, { view: View; label: string }[]> = {
   CENTRE: [{ view: "all", label: "My batches" }],
-  DISTRICT_OFFICER: [{ view: "waiting", label: "Waiting for me" }, { view: "all", label: "All in my district" }],
-  QUALITY: [{ view: "waiting", label: "Waiting for me" }, { view: "all", label: "All batches" }],
-  STATE: [{ view: "waiting", label: "Waiting for me" }, { view: "stuck", label: "Stuck" }, { view: "all", label: "All batches" }],
+  DISTRICT_OFFICER: [
+    { view: "waiting", label: "Waiting for me" },
+    { view: "all", label: "All in my district" },
+  ],
+  QUALITY: [
+    { view: "waiting", label: "Waiting for me" },
+    { view: "all", label: "All batches" },
+  ],
+  STATE: [
+    { view: "waiting", label: "Waiting for me" },
+    { view: "stuck", label: "Stuck" },
+    { view: "all", label: "All batches" },
+  ],
 };
 
 export default function Dashboard({ me }: { me: Me }) {
@@ -25,8 +35,13 @@ export default function Dashboard({ me }: { me: Me }) {
   useLive(reload, true); // changes made by anyone appear here without refreshing
 
   useEffect(() => {
-    api<{ batches: BatchSummary[] }>(`/batches?view=${view}`).then((r) => setBatches(r.batches)).catch((e) => setError(e.message));
-    if (me.role === "STATE") api<{ batches: BatchSummary[] }>("/batches?view=stuck").then((r) => setStuck(r.batches.length)).catch(() => undefined);
+    api<{ batches: BatchSummary[] }>(`/batches?view=${view}`)
+      .then((r) => setBatches(r.batches))
+      .catch((e) => setError(e.message));
+    if (me.role === "STATE")
+      api<{ batches: BatchSummary[] }>("/batches?view=stuck")
+        .then((r) => setStuck(r.batches.length))
+        .catch(() => undefined);
   }, [view, tick, me.role]);
 
   async function create(e: React.FormEvent) {
@@ -45,15 +60,27 @@ export default function Dashboard({ me }: { me: Me }) {
     <div className="split">
       <div>
         {me.role === "STATE" && stuck > 0 && view !== "stuck" && (
-          <button className="alert" onClick={() => setView("stuck")}>⚠ {stuck} batch(es) are stuck past their time limit. View</button>
+          <button className="alert" onClick={() => setView("stuck")}>
+            ⚠ {stuck} batch(es) are stuck past their time limit. View
+          </button>
         )}
         <div className="tabs">
-          {tabs.map((t) => <button key={t.view} className={view === t.view ? "tab on" : "tab"} onClick={() => setView(t.view)}>{t.label}</button>)}
+          {tabs.map((t) => (
+            <button key={t.view} className={view === t.view ? "tab on" : "tab"} onClick={() => setView(t.view)}>
+              {t.label}
+            </button>
+          ))}
         </div>
         {me.role === "CENTRE" && (
           <form className="row new" onSubmit={create}>
-            <input placeholder="New batch: course name, e.g. Welding Basics" value={course} onChange={(e) => setCourse(e.target.value)} />
-            <button className="primary" disabled={course.trim().length < 2}>Create</button>
+            <input
+              placeholder="New batch: course name, e.g. Welding Basics"
+              value={course}
+              onChange={(e) => setCourse(e.target.value)}
+            />
+            <button className="primary" disabled={course.trim().length < 2}>
+              Create
+            </button>
           </form>
         )}
         {error && <p className="error">{error}</p>}
@@ -76,7 +103,13 @@ export default function Dashboard({ me }: { me: Me }) {
           ))}
         </ul>
       </div>
-      <div>{selected ? <BatchDetail id={selected} tick={tick} onChanged={reload} /> : <section className="card muted">Select a batch to see it.</section>}</div>
+      <div>
+        {selected ? (
+          <BatchDetail id={selected} tick={tick} onChanged={reload} />
+        ) : (
+          <section className="card muted">Select a batch to see it.</section>
+        )}
+      </div>
     </div>
   );
 }

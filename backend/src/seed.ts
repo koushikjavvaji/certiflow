@@ -1,6 +1,6 @@
 import { Role, StepScope } from "@prisma/client";
 import { disconnectDb, rawPrisma as db } from "./db";
-import { hashPassword } from "./password";
+import { hashPassword } from "./auth";
 
 // Demo data. Safe to run on every startup (idempotent):
 //   - people / districts / centres use fixed ids + upsert, so ids are the same on every
@@ -60,15 +60,64 @@ async function seedPeople() {
   }
 
   const users = [
-    { id: DEMO_USER_IDS.anika, email: DEMO_EMAILS.anika, name: "Anika", role: Role.CENTRE, centreId: C_SUNRISE, districtId: null },
-    { id: DEMO_USER_IDS.dev, email: DEMO_EMAILS.dev, name: "Dev", role: Role.DISTRICT_OFFICER, districtId: D_RIVERSIDE, centreId: null },
-    { id: DEMO_USER_IDS.meera, email: DEMO_EMAILS.meera, name: "Meera", role: Role.DISTRICT_OFFICER, districtId: D_RIVERSIDE, centreId: null },
-    { id: DEMO_USER_IDS.kabir, email: DEMO_EMAILS.kabir, name: "Kabir", role: Role.DISTRICT_OFFICER, districtId: D_RIVERSIDE, centreId: null },
-    { id: DEMO_USER_IDS.neha, email: DEMO_EMAILS.neha, name: "Neha", role: Role.QUALITY, districtId: null, centreId: null },
-    { id: DEMO_USER_IDS.farah, email: DEMO_EMAILS.farah, name: "Farah", role: Role.STATE, districtId: null, centreId: null },
+    {
+      id: DEMO_USER_IDS.anika,
+      email: DEMO_EMAILS.anika,
+      name: "Anika",
+      role: Role.CENTRE,
+      centreId: C_SUNRISE,
+      districtId: null,
+    },
+    {
+      id: DEMO_USER_IDS.dev,
+      email: DEMO_EMAILS.dev,
+      name: "Dev",
+      role: Role.DISTRICT_OFFICER,
+      districtId: D_RIVERSIDE,
+      centreId: null,
+    },
+    {
+      id: DEMO_USER_IDS.meera,
+      email: DEMO_EMAILS.meera,
+      name: "Meera",
+      role: Role.DISTRICT_OFFICER,
+      districtId: D_RIVERSIDE,
+      centreId: null,
+    },
+    {
+      id: DEMO_USER_IDS.kabir,
+      email: DEMO_EMAILS.kabir,
+      name: "Kabir",
+      role: Role.DISTRICT_OFFICER,
+      districtId: D_RIVERSIDE,
+      centreId: null,
+    },
+    {
+      id: DEMO_USER_IDS.neha,
+      email: DEMO_EMAILS.neha,
+      name: "Neha",
+      role: Role.QUALITY,
+      districtId: null,
+      centreId: null,
+    },
+    {
+      id: DEMO_USER_IDS.farah,
+      email: DEMO_EMAILS.farah,
+      name: "Farah",
+      role: Role.STATE,
+      districtId: null,
+      centreId: null,
+    },
     // Not in the brief: an officer in a DIFFERENT district, so we can prove officers
     // cannot see or act on another district's batches.
-    { id: DEMO_USER_IDS.isha, email: DEMO_EMAILS.isha, name: "Isha", role: Role.DISTRICT_OFFICER, districtId: D_HILLVIEW, centreId: null },
+    {
+      id: DEMO_USER_IDS.isha,
+      email: DEMO_EMAILS.isha,
+      name: "Isha",
+      role: Role.DISTRICT_OFFICER,
+      districtId: D_HILLVIEW,
+      centreId: null,
+    },
   ];
   for (const u of users) {
     await db.user.upsert({ where: { id: u.id }, update: { ...u, isActive: true }, create: u });
@@ -76,13 +125,19 @@ async function seedPeople() {
 
   // Passwords: only for accounts that have none yet (never overwrite a changed password).
   const password = process.env.SEED_PASSWORD || DEFAULT_SEED_PASSWORD;
-  const needPassword = await db.user.findMany({ where: { passwordHash: null, id: { in: users.map((u) => u.id) } }, select: { id: true } });
+  const needPassword = await db.user.findMany({
+    where: { passwordHash: null, id: { in: users.map((u) => u.id) } },
+    select: { id: true },
+  });
   if (needPassword.length > 0) {
     // One hash per person (each with its own random salt), so two people with the same
     // password do not have the same stored value.
-    for (const u of needPassword) await db.user.update({ where: { id: u.id }, data: { passwordHash: await hashPassword(password) } });
+    for (const u of needPassword)
+      await db.user.update({ where: { id: u.id }, data: { passwordHash: await hashPassword(password) } });
     if (password === DEFAULT_SEED_PASSWORD) {
-      console.warn("seed: the demo accounts use the DEFAULT password. Set SEED_PASSWORD for anything that is not a demo.");
+      console.warn(
+        "seed: the demo accounts use the DEFAULT password. Set SEED_PASSWORD for anything that is not a demo.",
+      );
     }
   }
   return users.length;
@@ -104,7 +159,8 @@ async function seedSettings() {
     {
       key: "escalation.scanIntervalSeconds",
       value: 60,
-      description: "Seconds between stuck-batch scans (minimum 5). Read when a worker starts, so restart the worker after changing it.",
+      description:
+        "Seconds between stuck-batch scans (minimum 5). Read when a worker starts, so restart the worker after changing it.",
     },
   ];
   for (const s of defaults) {

@@ -2,10 +2,10 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import PDFDocument from "pdfkit";
-import QRCode from "qrcode";
 import { config } from "./config";
 import { prisma } from "./db";
+import PDFDocument from "pdfkit";
+import QRCode from "qrcode";
 
 export const verifyUrl = (code: string) => `${config.publicBaseUrl}/verify/${code}`;
 
@@ -44,7 +44,10 @@ export async function renderCertificatePdf(f: CertificateFacts): Promise<Buffer>
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
   const w = doc.page.width;
-  doc.rect(25, 25, w - 50, doc.page.height - 50).lineWidth(3).stroke("#1f3a5f");
+  doc
+    .rect(25, 25, w - 50, doc.page.height - 50)
+    .lineWidth(3)
+    .stroke("#1f3a5f");
   doc.fontSize(14).fillColor("#555").text("PRAGATI SKILLS MISSION", 0, 70, { align: "center" });
   doc.fontSize(34).fillColor("#1f3a5f").text("Certificate of Completion", 0, 100, { align: "center" });
   doc.fontSize(14).fillColor("#555").text("This is to certify that", 0, 170, { align: "center" });
@@ -57,7 +60,10 @@ export async function renderCertificatePdf(f: CertificateFacts): Promise<Buffer>
   doc.image(qr, 60, 400, { width: 110 });
   doc.fontSize(11).fillColor("#000").text(`Certificate No: ${f.number}`, 190, 415);
   doc.text(`Verification code: ${formatCode(f.verifyCode)}`, 190, 435);
-  doc.fontSize(9).fillColor("#555").text(`Verify at ${verifyUrl(f.verifyCode)}`, 190, 458, { width: 500 });
+  doc
+    .fontSize(9)
+    .fillColor("#555")
+    .text(`Verify at ${verifyUrl(f.verifyCode)}`, 190, 458, { width: 500 });
   doc.end();
   return done;
 }

@@ -58,19 +58,31 @@ export default function Verify({ initialCode }: { initialCode: string }) {
         <section className={`card verdict ${result.status === "VALID" ? "ok" : "bad"}`}>
           <h2>{result.status === "VALID" ? "✔ Genuine certificate" : "✘ This certificate is no longer valid"}</h2>
           <dl>
-            <dt>Certificate number</dt><dd>{result.number}</dd>
-            <dt>Holder</dt><dd>{result.holder}</dd>
-            <dt>Course</dt><dd>{result.course}</dd>
-            <dt>Training centre</dt><dd>{result.centre}</dd>
-            <dt>Issued</dt><dd>{result.issuedAt ? new Date(result.issuedAt).toLocaleDateString() : ""}</dd>
-            {result.status === "CANCELLED" && <><dt>Cancelled on</dt><dd>{result.cancelledAt ? new Date(result.cancelledAt).toLocaleString() : ""}</dd></>}
+            <dt>Certificate number</dt>
+            <dd>{result.number}</dd>
+            <dt>Holder</dt>
+            <dd>{result.holder}</dd>
+            <dt>Course</dt>
+            <dd>{result.course}</dd>
+            <dt>Training centre</dt>
+            <dd>{result.centre}</dd>
+            <dt>Issued</dt>
+            <dd>{result.issuedAt ? new Date(result.issuedAt).toLocaleDateString() : ""}</dd>
+            {result.status === "CANCELLED" && (
+              <>
+                <dt>Cancelled on</dt>
+                <dd>{result.cancelledAt ? new Date(result.cancelledAt).toLocaleString() : ""}</dd>
+              </>
+            )}
           </dl>
         </section>
       )}
       {result && !result.found && (
         <section className="card verdict bad">
           <h2>✘ No certificate found for this code</h2>
-          <p className="muted">Check the code for typing mistakes. If it is correct, treat the certificate as not genuine.</p>
+          <p className="muted">
+            Check the code for typing mistakes. If it is correct, treat the certificate as not genuine.
+          </p>
         </section>
       )}
     </main>

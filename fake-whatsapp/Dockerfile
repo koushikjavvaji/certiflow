@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json index.js ./
+COPY index.js ./
 USER node
 EXPOSE 4000
 CMD ["node", "index.js"]

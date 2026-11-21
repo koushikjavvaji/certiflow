@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, getToken, post, setToken, type ConfigView, type DemoUser, type Me } from "./api";
 import Dashboard from "./Dashboard";
 import { ROLE_LABEL } from "./format";
-import Rules from "./Rules";
 import Verify from "./Verify";
 
 export default function App() {
@@ -59,7 +58,13 @@ function Staff() {
       setPassword("");
       await loadSession();
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 400 ? "Enter a valid email address and your password." : err instanceof Error ? err.message : "sign-in failed");
+      setError(
+        err instanceof ApiError && err.status === 400
+          ? "Enter a valid email address and your password."
+          : err instanceof Error
+            ? err.message
+            : "sign-in failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -110,11 +115,29 @@ function Staff() {
         <form className="card" onSubmit={signIn}>
           <h2>Sign in</h2>
           <label htmlFor="email">Email</label>
-          <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className="wide" required />
+          <input
+            id="email"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="wide"
+            required
+          />
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="wide" required />
+          <input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="wide"
+            required
+          />
           {error && <p className="error">{error}</p>}
-          <button className="primary" disabled={busy || !email || !password}>{busy ? "Signing in…" : "Sign in"}</button>
+          <button className="primary" disabled={busy || !email || !password}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
         </form>
         {demoSwitcher && <section className="card">{demoSwitcher}</section>}
         <p className="muted">
@@ -137,7 +160,9 @@ function Staff() {
           </p>
           <div className="row">
             <button onClick={signOut}>Sign out</button>
-            <a href="/verify" target="_blank" rel="noreferrer">Public verify page</a>
+            <a href="/verify" target="_blank" rel="noreferrer">
+              Public verify page
+            </a>
           </div>
         </div>
       </header>
@@ -146,5 +171,52 @@ function Staff() {
       <Dashboard key={me.id} me={me} />
       {config && <Rules config={config} />}
     </main>
+  );
+}
+
+// The live approval rules, read from the database. Edit a row there and this changes.
+function Rules({ config }: { config: ConfigView }) {
+  return (
+    <details className="card">
+      <summary>Live rules (read from the database)</summary>
+      <p className="muted">
+        Workflow version {config.workflow.version}. Changing these rows in the database changes behaviour within
+        seconds, with no redeploy.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Step</th>
+            <th>Who acts</th>
+            <th>Approvals</th>
+            <th>SLA (min)</th>
+            <th>Applies when</th>
+          </tr>
+        </thead>
+        <tbody>
+          {config.workflow.steps.map((s) => (
+            <tr key={s.key}>
+              <td>{s.position}</td>
+              <td>{s.name}</td>
+              <td>
+                {ROLE_LABEL[s.role] ?? s.role}
+                {s.scope === "DISTRICT" ? ", own district" : ""}
+              </td>
+              <td>{s.requiredApprovals}</td>
+              <td>{s.slaMinutes ?? "none"}</td>
+              <td>{s.condition ? JSON.stringify(s.condition) : "always"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <ul className="settings">
+        {Object.entries(config.settings).map(([k, v]) => (
+          <li key={k}>
+            <code>{k}</code> = <code>{JSON.stringify(v)}</code>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

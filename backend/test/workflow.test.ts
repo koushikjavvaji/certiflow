@@ -1,14 +1,27 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { invalidateConfigCache } from "../src/config-store";
+import { Handler, chainOf } from "../src/chain";
+import { invalidateConfigCache, type WorkflowStepConfig } from "../src/config-store";
 import { rawPrisma } from "../src/db";
-import { subscribeLive } from "../src/live";
+import { StepChain } from "../src/workflow";
+import { closeLive, subscribeLive } from "../src/redis";
 import { createApp } from "../src/app";
-import { closeLive } from "../src/live";
-import { bearer, tokenFor } from "./helpers";
-import { api, approveOk, auditFor, batchRow, csvOf, decide, makeBatch, makeSubmittedBatch, U } from "./flow-helpers";
+import {
+  U,
+  api,
+  approveOk,
+  auditFor,
+  batchRow,
+  bearer,
+  csvOf,
+  decide,
+  makeBatch,
+  makeSubmittedBatch,
+  tokenFor,
+} from "./helpers";
 
 const approvalCount = (batchId: string) => rawPrisma.approval.count({ where: { batchId, isActive: true } });
-const stepsCompleted = async (batchId: string) => (await auditFor(batchId)).filter((a) => a.action === "STEP_COMPLETED").length;
+const stepsCompleted = async (batchId: string) =>
+  (await auditFor(batchId)).filter((a) => a.action === "STEP_COMPLETED").length;
 
 describe("the approval path follows the rules stored in the database", () => {
   it("small batch: two district approvals, then the state office (quality is skipped)", async () => {
@@ -73,7 +86,9 @@ describe("MOMENT 2: officers act at the same moment", () => {
 
   it("the race is won correctly every time: 12 batches, two officers each, all at once", async () => {
     const ids = await Promise.all(Array.from({ length: 12 }, () => makeSubmittedBatch(3)));
-    const results = await Promise.all(ids.flatMap((id) => [decide(U.dev, id, "APPROVE"), decide(U.meera, id, "APPROVE")]));
+    const results = await Promise.all(
+      ids.flatMap((id) => [decide(U.dev, id, "APPROVE"), decide(U.meera, id, "APPROVE")]),
+    );
     expect(results.every((r) => r.status === 200)).toBe(true);
     for (const id of ids) {
       expect((await batchRow(id)).currentStepKey).toBe("STATE_REVIEW"); // none stuck at the district step
@@ -260,20 +275,26 @@ describe("NEVER: a decision that cannot be traced", () => {
     expect(approve.createdAt).toBeInstanceOf(Date);
     const back = trail.find((a) => a.action === "BATCH_SENT_BACK")!;
     expect(back).toMatchObject({ actorId: U.meera, actorName: "Meera", reason: "Need clearer marks" });
-    expect(trail.map((a) => a.action)).toEqual(expect.arrayContaining(["BATCH_CREATED", "CANDIDATES_UPLOADED", "BATCH_SUBMITTED"]));
+    expect(trail.map((a) => a.action)).toEqual(
+      expect.arrayContaining(["BATCH_CREATED", "CANDIDATES_UPLOADED", "BATCH_SUBMITTED"]),
+    );
   });
 
   it("the trail is readable by those allowed to see the batch", async () => {
     const id = await makeSubmittedBatch(5);
     await approveOk(U.dev, id);
     const detail = (await (await api(U.meera)).get(`/batches/${id}`)).body;
-    expect(detail.audit.some((a: { actor: string; action: string }) => a.actor === "Dev" && a.action === "STEP_APPROVED")).toBe(true);
+    expect(
+      detail.audit.some((a: { actor: string; action: string }) => a.actor === "Dev" && a.action === "STEP_APPROVED"),
+    ).toBe(true);
   });
 
   it("the database refuses to edit, delete or truncate the audit log", async () => {
     const id = await makeSubmittedBatch(3);
     const row = (await auditFor(id))[0]!;
-    await expect(rawPrisma.auditLog.update({ where: { id: row.id }, data: { reason: "edited" } })).rejects.toThrow(/append-only/);
+    await expect(rawPrisma.auditLog.update({ where: { id: row.id }, data: { reason: "edited" } })).rejects.toThrow(
+      /append-only/,
+    );
     await expect(rawPrisma.auditLog.delete({ where: { id: row.id } })).rejects.toThrow(/append-only/);
     await expect(rawPrisma.$executeRawUnsafe(`TRUNCATE "AuditLog"`)).rejects.toThrow(/append-only/);
     expect(await rawPrisma.auditLog.count({ where: { id: row.id } })).toBe(1);
@@ -307,7 +328,11 @@ describe("NEVER: a stranger seeing someone's personal details", () => {
     const forCentre = (await (await api(U.anika)).get(`/batches/${id}`)).body;
     const text = JSON.stringify(forCentre);
     for (const officer of ["Dev", "Meera", "Kabir", "Neha", "Farah"]) expect(text).not.toContain(`"${officer}"`);
-    expect(forCentre.audit.some((a: { actor: string; action: string }) => a.actor === "District officer" && a.action === "BATCH_SENT_BACK")).toBe(true);
+    expect(
+      forCentre.audit.some(
+        (a: { actor: string; action: string }) => a.actor === "District officer" && a.action === "BATCH_SENT_BACK",
+      ),
+    ).toBe(true);
     expect(forCentre.audit.some((a: { actor: string }) => a.actor === "Anika")).toBe(true); // her own actions keep her name
     expect(forCentre.batch.lastReason).toBe("please fix the marks"); // the reason is still shown
 
@@ -372,5 +397,157 @@ describe("everyone sees changes as they happen", () => {
       server.close();
       closeLive();
     }
+  });
+});
+
+// ====================== The chain of responsibility itself ======================
+describe("the generic chain (chain.ts)", () => {
+  // A tiny handler that records its name; `stops` makes it "handle" the request.
+  class Note extends Handler<string[]> {
+    constructor(
+      private word: string,
+      private stops = false,
+    ) {
+      super();
+    }
+    protected process(log: string[]) {
+      log.push(this.word);
+      return this.stops;
+    }
+  }
+
+  it("passes the request along in order, to the end", async () => {
+    const log: string[] = [];
+    await chainOf<string[]>(new Note("a"), new Note("b"), new Note("c")).handle(log);
+    expect(log).toEqual(["a", "b", "c"]);
+  });
+
+  it("stops at the first handler that handles it", async () => {
+    const log: string[] = [];
+    await chainOf<string[]>(new Note("a"), new Note("b", true), new Note("c")).handle(log);
+    expect(log).toEqual(["a", "b"]);
+  });
+
+  it("a handler that refuses (throws) rejects the whole request and nothing after it runs", async () => {
+    class Refuse extends Handler<string[]> {
+      protected process(): boolean {
+        throw new Error("refused");
+      }
+    }
+    const log: string[] = [];
+    await expect(chainOf<string[]>(new Note("a"), new Refuse(), new Note("c")).handle(log)).rejects.toThrow("refused");
+    expect(log).toEqual(["a"]);
+  });
+});
+
+describe("the approval path as a chain of step handlers (step-chain.ts)", () => {
+  const step = (position: number, key: string, minCandidates?: number): WorkflowStepConfig => ({
+    position,
+    key,
+    name: key,
+    role: "STATE",
+    scope: "ANY",
+    requiredApprovals: 1,
+    slaMinutes: null,
+    condition: minCandidates === undefined ? null : { minCandidates },
+  });
+
+  it("links the steps in position order, however they arrive", () => {
+    const chain = new StepChain([step(3, "C"), step(1, "A"), step(2, "B")]);
+    expect(chain.first(10)?.key).toBe("A");
+    expect(chain.get("A")?.nextApplicable(10)?.key).toBe("B");
+    expect(chain.get("B")?.nextApplicable(10)?.key).toBe("C");
+    expect(chain.get("C")?.nextApplicable(10)).toBeNull(); // end of the chain: approved
+  });
+
+  it("skips steps that do not apply to this batch (the 'big batch' rule)", () => {
+    const chain = new StepChain([step(1, "DISTRICT"), step(2, "QUALITY", 50), step(3, "STATE")]);
+    expect(chain.get("DISTRICT")?.nextApplicable(49)?.key).toBe("STATE");
+    expect(chain.get("DISTRICT")?.nextApplicable(50)?.key).toBe("QUALITY");
+  });
+
+  it("starts at the first step that applies, and an empty chain means 'nothing to ask'", () => {
+    expect(new StepChain([step(1, "BIG_ONLY", 100), step(2, "STATE")]).first(5)?.key).toBe("STATE");
+    expect(new StepChain([]).first(5)).toBeNull();
+  });
+
+  it("a resubmitted batch resumes where it was sent back, unless that step no longer applies", () => {
+    const chain = new StepChain([step(1, "A"), step(2, "B", 50), step(3, "C")]);
+    expect(chain.resume("B", 60)?.key).toBe("B");
+    expect(chain.resume("B", 10)?.key).toBe("A"); // B no longer applies: start over
+    expect(chain.resume("GONE", 10)?.key).toBe("A");
+    expect(chain.resume(null, 10)?.key).toBe("A");
+  });
+
+  it("a step is satisfied by enough approvals", () => {
+    const two = new StepChain([{ ...step(1, "A"), requiredApprovals: 2 }]).get("A")!;
+    expect([two.isSatisfiedBy(1), two.isSatisfiedBy(2), two.isSatisfiedBy(3)]).toEqual([false, true, true]);
+  });
+});
+
+describe("ADDING A STEP is adding a row (no code change)", () => {
+  const addAuditStep = async (condition: object | null) => {
+    await rawPrisma.workflowStep.updateMany({
+      where: { key: "STATE_REVIEW", workflowVersion: 1 },
+      data: { position: 4 },
+    }); // make room
+    await rawPrisma.workflowStep.create({
+      data: {
+        workflowVersion: 1,
+        position: 3,
+        key: "AUDIT_REVIEW",
+        name: "Audit review",
+        role: "QUALITY",
+        scope: "ANY",
+        requiredApprovals: 1,
+        slaMinutes: 2880,
+        condition: condition as never,
+      },
+    });
+    await invalidateConfigCache();
+  };
+
+  afterEach(async () => {
+    await rawPrisma.workflowStep.deleteMany({ where: { key: "AUDIT_REVIEW" } }); // hard delete: it was only a test row
+    await rawPrisma.workflowStep.updateMany({
+      where: { key: "STATE_REVIEW", workflowVersion: 1 },
+      data: { position: 3 },
+    });
+    await invalidateConfigCache();
+  });
+
+  it("a new step sits in the chain: every batch must pass it, in order, by the right role", async () => {
+    await addAuditStep(null);
+    const id = await makeSubmittedBatch(5);
+    await approveOk(U.dev, id);
+    await approveOk(U.meera, id);
+    expect((await batchRow(id)).currentStepKey).toBe("AUDIT_REVIEW"); // the NEW step, between district and state
+    expect((await decide(U.farah, id, "APPROVE")).status).toBe(403); // the state office cannot skip the audit
+    expect((await decide(U.dev, id, "APPROVE")).status).toBe(403); // and it is not the district's turn any more
+    await approveOk(U.neha, id);
+    expect((await batchRow(id)).currentStepKey).toBe("STATE_REVIEW");
+    await approveOk(U.farah, id);
+    expect((await batchRow(id)).status).toBe("APPROVED");
+  });
+
+  it("a new step can apply only to some batches (its condition), others skip it", async () => {
+    await addAuditStep({ minCandidates: 100 });
+    const small = await makeSubmittedBatch(5);
+    await approveOk(U.dev, small);
+    await approveOk(U.meera, small);
+    expect((await batchRow(small)).currentStepKey).toBe("STATE_REVIEW"); // 5 < 100: audit skipped
+  });
+
+  it("the screens show the new step by themselves", async () => {
+    await addAuditStep(null);
+    const id = await makeSubmittedBatch(5);
+    await approveOk(U.dev, id);
+    await approveOk(U.meera, id);
+    const detail = (await (await api(U.neha)).get(`/batches/${id}`)).body;
+    expect(detail.batch.stepName).toBe("Audit review");
+    expect(detail.actions).toContain("APPROVE"); // Neha is offered the button
+    expect(
+      (await (await api(U.neha)).get("/batches?view=waiting")).body.batches.some((b: { id: string }) => b.id === id),
+    ).toBe(true);
   });
 });

@@ -82,12 +82,16 @@ describe("database rejects bad people data", () => {
   it("a district officer must have a district and no centre", async () => {
     await expect(rawPrisma.user.create({ data: { name: "x", role: "DISTRICT_OFFICER" } })).rejects.toThrow();
     await expect(
-      rawPrisma.user.create({ data: { name: "x", role: "DISTRICT_OFFICER", districtId: riverside, centreId: sunrise } }),
+      rawPrisma.user.create({
+        data: { name: "x", role: "DISTRICT_OFFICER", districtId: riverside, centreId: sunrise },
+      }),
     ).rejects.toThrow();
   });
 
   it("quality and state users must have neither", async () => {
-    await expect(rawPrisma.user.create({ data: { name: "x", role: "STATE", districtId: riverside } })).rejects.toThrow();
+    await expect(
+      rawPrisma.user.create({ data: { name: "x", role: "STATE", districtId: riverside } }),
+    ).rejects.toThrow();
     await expect(rawPrisma.user.create({ data: { name: "x", role: "QUALITY", centreId: sunrise } })).rejects.toThrow();
   });
 

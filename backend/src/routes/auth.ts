@@ -1,11 +1,73 @@
 import { Router } from "express";
 import { z } from "zod";
+import { authenticate, signToken, verifyPassword } from "../auth";
+import { Handler, HttpError, chainOf } from "../chain";
 import { config } from "../config";
 import { prisma } from "../db";
-import { signToken } from "../auth";
-import { verifyPassword } from "../password";
-import { allow, reset } from "../rate-limit";
-import { authenticate } from "../middleware/authenticate";
+import { allow, reset } from "../redis";
+
+// ============ SIGN-IN as a chain: rate limit → find the person → check the password → hand out a token ============
+interface LoginContext {
+  email: string;
+  password: string;
+  ip: string | undefined;
+  log: { warn: (o: object, m: string) => void; info: (o: object, m: string) => void };
+  user?: { id: string; passwordHash: string | null } | null;
+  token?: string;
+}
+
+const LOGIN_ATTEMPTS_PER_IP_PER_MINUTE = 30;
+const ONE_MINUTE = 60;
+const TEN_MINUTES = 600;
+const prefix = `${config.queuePrefix}:rl:login`;
+const emailKey = (email: string) => `${prefix}:email:${email}`;
+
+// Brute-force protection: limited per caller AND per email address (so spreading guesses
+// across many IPs does not help). The counter goes up BEFORE the password is checked (so
+// parallel guesses cannot slip past a check-then-count gap); a correct sign-in clears it.
+class RateLimit extends Handler<LoginContext> {
+  protected async process(c: LoginContext) {
+    const within =
+      (await allow(`${prefix}:ip:${c.ip}`, LOGIN_ATTEMPTS_PER_IP_PER_MINUTE, ONE_MINUTE)) &&
+      (await allow(emailKey(c.email), config.loginAttemptsPer10Min, TEN_MINUTES));
+    if (!within) {
+      c.log.warn({ email: c.email }, "login rate limit hit");
+      throw new HttpError(429, "too many sign-in attempts, please wait a few minutes");
+    }
+    return false;
+  }
+}
+
+class FindUser extends Handler<LoginContext> {
+  protected async process(c: LoginContext) {
+    c.user = await prisma.user.findFirst({ where: { email: c.email }, select: { id: true, passwordHash: true } });
+    return false; // an unknown email does NOT stop here: the next step must cost the same time
+  }
+}
+
+// Same answer and same cost whether the email exists or not, so nobody can find out which emails exist.
+class CheckPassword extends Handler<LoginContext> {
+  protected async process(c: LoginContext) {
+    const ok = await verifyPassword(c.password, c.user?.passwordHash ?? null);
+    if (!c.user || !ok) {
+      c.log.warn({ email: c.email }, "failed sign-in");
+      throw new HttpError(401, "invalid email or password");
+    }
+    return false;
+  }
+}
+
+class IssueToken extends Handler<LoginContext> {
+  protected async process(c: LoginContext) {
+    const user = c.user as { id: string };
+    await reset(emailKey(c.email)); // typos before this must not count towards a lockout
+    c.log.info({ userId: user.id }, "signed in");
+    c.token = signToken(user.id);
+    return true;
+  }
+}
+
+const loginChain = chainOf<LoginContext>(new RateLimit(), new FindUser(), new CheckPassword(), new IssueToken());
 
 // --- Demo-only "switch user" login -------------------------------------------------
 // The brief wants reviewers to hop between people with no passwords. The two demo
@@ -28,31 +90,9 @@ export function createAuthRouter(demoMode: boolean) {
   router.post("/auth/login", async (req, res) => {
     const { email, password } = credentials.parse(req.body);
 
-    // Brute-force protection: limited per caller AND per email address (so spreading
-    // guesses across many IPs does not help). Counted in Redis, shared by all instances.
-    // The counter goes up BEFORE the password is checked (so parallel guesses cannot slip
-    // past a check-then-count gap) and is cleared by a correct sign-in, so only mistakes
-    // add up, never successes.
-    const prefix = `${config.queuePrefix}:rl:login`;
-    const emailKey = `${prefix}:email:${email}`;
-    const within = (await allow(`${prefix}:ip:${req.ip}`, 30, 60)) && (await allow(emailKey, config.loginAttemptsPer10Min, 600));
-    if (!within) {
-      req.log.warn({ email }, "login rate limit hit");
-      res.status(429).json({ error: "too many sign-in attempts, please wait a few minutes" });
-      return;
-    }
-
-    const user = await prisma.user.findFirst({ where: { email }, select: { id: true, passwordHash: true } });
-    const ok = await verifyPassword(password, user?.passwordHash ?? null);
-    if (!user || !ok) {
-      // Same answer and same cost whether the email exists or not.
-      req.log.warn({ email }, "failed sign-in");
-      res.status(401).json({ error: "invalid email or password" });
-      return;
-    }
-    await reset(emailKey);
-    req.log.info({ userId: user.id }, "signed in");
-    res.json({ token: signToken(user.id) });
+    const context: LoginContext = { email, password, ip: req.ip, log: req.log };
+    await loginChain.handle(context);
+    res.json({ token: context.token });
   });
 
   if (demoMode) {

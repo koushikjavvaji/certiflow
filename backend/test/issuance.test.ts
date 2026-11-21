@@ -1,10 +1,19 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { rawPrisma } from "../src/db";
 import { fanOutIssuance, markDeliveryFailed, processIssue } from "../src/issuance";
-import { sweepIssuance } from "../src/maintenance";
-import { closeQueues } from "../src/queues";
-import { startWorkers } from "../src/workers";
-import { api, approveFully, auditFor, batchRow, createStubWhatsApp, makeBatch, makeSubmittedBatch, U, waitFor } from "./flow-helpers";
+import { startWorkers, sweepIssuance } from "../src/workers";
+import { closeQueues } from "../src/redis";
+import {
+  U,
+  api,
+  approveFully,
+  auditFor,
+  batchRow,
+  createStubWhatsApp,
+  makeBatch,
+  makeSubmittedBatch,
+  waitFor,
+} from "./helpers";
 
 // The worker runs IN this process against the real queue (BullMQ on Redis), with a
 // WhatsApp stand-in that fails, times out and "delivers but loses the reply".
@@ -39,7 +48,9 @@ describe("MOMENT 3: a batch of 60 is approved and WhatsApp is unreliable", () =>
 
     // The provider really was unreliable, and retries were needed.
     expect(stub.stats.failedCalls).toBeGreaterThan(0);
-    expect(await rawPrisma.deliveryAttempt.count({ where: { ok: false, certificate: { batchId: id } } })).toBeGreaterThan(0);
+    expect(
+      await rawPrisma.deliveryAttempt.count({ where: { ok: false, certificate: { batchId: id } } }),
+    ).toBeGreaterThan(0);
 
     // The whole story is on record.
     const actions = (await auditFor(id)).map((a) => a.action);
@@ -79,7 +90,9 @@ describe("the system stays correct when an instance restarts at any moment", () 
   it("stopping the worker mid-batch and starting a new one finishes the job with no duplicates", async () => {
     const id = await makeSubmittedBatch(12);
     await approveFully(id);
-    await waitFor(async () => (await rawPrisma.certificate.count({ where: { batchId: id, deliveryStatus: "SENT" } })) >= 3);
+    await waitFor(
+      async () => (await rawPrisma.certificate.count({ where: { batchId: id, deliveryStatus: "SENT" } })) >= 3,
+    );
 
     await workers.close(); // "the instance restarts"
     workers = startWorkers({ whatsapp: stub.client }, { schedule: false });
@@ -117,11 +130,21 @@ describe("NEVER: two certificates for one candidate, or two sharing a number", (
     const id = await makeBatch(2);
     const [c1, c2] = await rawPrisma.candidate.findMany({ where: { batchId: id } });
     const base = { batchId: id, verifyCode: "A".repeat(16) };
-    await rawPrisma.certificate.create({ data: { ...base, candidateId: c1!.id, number: "PSM-TEST-000001", verifyCode: "B".repeat(16) } });
+    await rawPrisma.certificate.create({
+      data: { ...base, candidateId: c1!.id, number: "PSM-TEST-000001", verifyCode: "B".repeat(16) },
+    });
     // same candidate again
-    await expect(rawPrisma.certificate.create({ data: { ...base, candidateId: c1!.id, number: "PSM-TEST-000002", verifyCode: "C".repeat(16) } })).rejects.toThrow();
+    await expect(
+      rawPrisma.certificate.create({
+        data: { ...base, candidateId: c1!.id, number: "PSM-TEST-000002", verifyCode: "C".repeat(16) },
+      }),
+    ).rejects.toThrow();
     // different candidate, same number
-    await expect(rawPrisma.certificate.create({ data: { ...base, candidateId: c2!.id, number: "PSM-TEST-000001", verifyCode: "D".repeat(16) } })).rejects.toThrow();
+    await expect(
+      rawPrisma.certificate.create({
+        data: { ...base, candidateId: c2!.id, number: "PSM-TEST-000001", verifyCode: "D".repeat(16) },
+      }),
+    ).rejects.toThrow();
   });
 
   it("numbers come from a sequence, so concurrent issuing across batches never repeats one", async () => {
@@ -130,7 +153,9 @@ describe("NEVER: two certificates for one candidate, or two sharing a number", (
     for (const b of batches) await rawPrisma.batch.update({ where: { id: b }, data: { status: "ISSUING" } });
     const candidates = await rawPrisma.candidate.findMany({ where: { batchId: { in: batches } } });
     await Promise.all(candidates.map((c) => processIssue(c.id, { whatsapp: calm.client })));
-    const numbers = (await rawPrisma.certificate.findMany({ where: { batchId: { in: batches } } })).map((c) => c.number);
+    const numbers = (await rawPrisma.certificate.findMany({ where: { batchId: { in: batches } } })).map(
+      (c) => c.number,
+    );
     expect(numbers).toHaveLength(15);
     expect(new Set(numbers).size).toBe(15);
   });
@@ -155,7 +180,10 @@ describe("a WhatsApp outage: give up cleanly, then the state office retries", ()
     const target = (await certs(id))[0]!;
     expect((await (await api(U.dev)).post(`/certificates/${target.id}/retry`)).status).toBe(403); // not the state office
     expect((await (await api(U.farah)).post(`/certificates/${target.id}/retry`)).status).toBe(200);
-    await waitFor(async () => (await rawPrisma.certificate.findUniqueOrThrow({ where: { id: target.id } })).deliveryStatus === "SENT");
+    await waitFor(
+      async () =>
+        (await rawPrisma.certificate.findUniqueOrThrow({ where: { id: target.id } })).deliveryStatus === "SENT",
+    );
     expect((await (await api(U.farah)).post(`/certificates/${target.id}/retry`)).status).toBe(409); // already delivered
   });
 });

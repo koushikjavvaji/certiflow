@@ -57,7 +57,10 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
     });
   }
 
-  if (!d) return <section className="card">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</section>;
+  if (!d)
+    return (
+      <section className="card">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</section>
+    );
   const can = (a: string) => d.actions.includes(a);
   const delivered = d.certificates.filter((c) => c.deliveryStatus === "SENT").length;
 
@@ -66,7 +69,9 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
       <section className="card">
         <div className="title-row">
           <h2>{d.batch.courseName}</h2>
-          <span className={`badge ${d.batch.status.toLowerCase()}`}>{STATUS_LABEL[d.batch.status] ?? d.batch.status}</span>
+          <span className={`badge ${d.batch.status.toLowerCase()}`}>
+            {STATUS_LABEL[d.batch.status] ?? d.batch.status}
+          </span>
         </div>
         <p className="muted">
           {d.batch.centreName} · {d.batch.candidateCount} candidate(s)
@@ -97,39 +102,98 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
         <section className="card">
           <h3>Candidates</h3>
           <p className="muted">
-            Upload your spreadsheet as CSV with columns <code>name, phone, courseCode, marks</code>. Every row is checked; if any row is bad,
-            nothing is saved. Samples: <a href="/samples/small-5.csv" download>small-5</a>, <a href="/samples/big-60.csv" download>big-60</a>,{" "}
-            <a href="/samples/bad-rows.csv" download>bad-rows</a>.
+            Upload your spreadsheet as CSV with columns <code>name, phone, courseCode, marks</code>. Every row is
+            checked; if any row is bad, nothing is saved. Samples:{" "}
+            <a href="/samples/small-5.csv" download>
+              small-5
+            </a>
+            ,{" "}
+            <a href="/samples/big-60.csv" download>
+              big-60
+            </a>
+            ,{" "}
+            <a href="/samples/bad-rows.csv" download>
+              bad-rows
+            </a>
+            .
           </p>
-          <input type="file" accept=".csv,text/csv" disabled={busy} onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={busy}
+            onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])}
+          />
           {rowErrors && (
             <div className="errors">
               <strong>{rowErrors.total} problem(s) found. Nothing was saved.</strong>
               <table>
-                <thead><tr><th>Row</th><th>Field</th><th>Problem</th></tr></thead>
-                <tbody>{rowErrors.list.map((r, i) => <tr key={i}><td>{r.row || "file"}</td><td>{r.field ?? ""}</td><td>{r.message}</td></tr>)}</tbody>
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Field</th>
+                    <th>Problem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowErrors.list.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.row || "file"}</td>
+                      <td>{r.field ?? ""}</td>
+                      <td>{r.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           )}
-          {can("SUBMIT") && <button className="primary" disabled={busy} onClick={() => void run(() => post(`/batches/${id}/submit`))}>Submit for approval</button>}
+          {can("SUBMIT") && (
+            <button className="primary" disabled={busy} onClick={() => void run(() => post(`/batches/${id}/submit`))}>
+              Submit for approval
+            </button>
+          )}
         </section>
       )}
 
       {(can("APPROVE") || can("SEND_BACK")) && (
         <section className="card">
           <h3>Your decision</h3>
-          <textarea placeholder="Reason (required to send back or reject)" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <textarea
+            placeholder="Reason (required to send back or reject)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
           <div className="row">
-            {can("APPROVE") && <button className="primary" disabled={busy} onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "APPROVE" }))}>Approve</button>}
-            <button disabled={busy || reason.trim().length < 3} onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "SEND_BACK", reason }))}>Send back</button>
-            <button className="danger" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "REJECT", reason }))}>Reject</button>
+            {can("APPROVE") && (
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "APPROVE" }))}
+              >
+                Approve
+              </button>
+            )}
+            <button
+              disabled={busy || reason.trim().length < 3}
+              onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "SEND_BACK", reason }))}
+            >
+              Send back
+            </button>
+            <button
+              className="danger"
+              disabled={busy || reason.trim().length < 3}
+              onClick={() => void run(() => post(`/batches/${id}/decision`, { decision: "REJECT", reason }))}
+            >
+              Reject
+            </button>
           </div>
         </section>
       )}
       {can("WITHDRAW") && (
         <section className="card">
           <p>You approved this step. Made a mistake?</p>
-          <button disabled={busy} onClick={() => void run(() => post(`/batches/${id}/withdraw`))}>Withdraw my approval</button>
+          <button disabled={busy} onClick={() => void run(() => post(`/batches/${id}/withdraw`))}>
+            Withdraw my approval
+          </button>
         </section>
       )}
 
@@ -137,27 +201,70 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
         <section className="card">
           <h3>Certificates</h3>
           {can("CANCEL_CERTIFICATE") && (
-            <input className="wide" placeholder="Reason for cancelling (needed to cancel a certificate)" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+            <input
+              className="wide"
+              placeholder="Reason for cancelling (needed to cancel a certificate)"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+            />
           )}
           <table>
-            <thead><tr><th>Number</th><th>Holder</th><th>Delivery</th><th>Status</th><th>Verification</th><th /></tr></thead>
+            <thead>
+              <tr>
+                <th>Number</th>
+                <th>Holder</th>
+                <th>Delivery</th>
+                <th>Status</th>
+                <th>Verification</th>
+                <th />
+              </tr>
+            </thead>
             <tbody>
               {d.certificates.map((c) => (
                 <tr key={c.id} className={c.status === "CANCELLED" ? "struck" : ""}>
                   <td>{c.number}</td>
                   <td>{c.holder}</td>
-                  <td>{c.deliveryStatus === "SENT" ? "Sent" : c.deliveryStatus === "FAILED" ? "Failed" : "Pending"}{c.attempts > 1 ? ` (${c.attempts} tries)` : ""}</td>
+                  <td>
+                    {c.deliveryStatus === "SENT" ? "Sent" : c.deliveryStatus === "FAILED" ? "Failed" : "Pending"}
+                    {c.attempts > 1 ? ` (${c.attempts} tries)` : ""}
+                  </td>
                   <td>{c.status === "CANCELLED" ? "Cancelled" : "Valid"}</td>
-                  <td>{c.verifyCode ? <a href={`/verify/${c.verifyCode.replaceAll("-", "")}`} target="_blank" rel="noreferrer">{c.verifyCode}</a> : ""}</td>
+                  <td>
+                    {c.verifyCode ? (
+                      <a href={`/verify/${c.verifyCode.replaceAll("-", "")}`} target="_blank" rel="noreferrer">
+                        {c.verifyCode}
+                      </a>
+                    ) : (
+                      ""
+                    )}
+                  </td>
                   <td className="cell-actions">
                     {c.status === "VALID" && (
-                      <button className="small" disabled={busy} onClick={() => void run(() => downloadFile(`/certificates/${c.id}/pdf`, `${c.number}.pdf`))}>Download PDF</button>
+                      <button
+                        className="small"
+                        disabled={busy}
+                        onClick={() => void run(() => downloadFile(`/certificates/${c.id}/pdf`, `${c.number}.pdf`))}
+                      >
+                        Download PDF
+                      </button>
                     )}
                     {can("CANCEL_CERTIFICATE") && c.status === "VALID" && (
-                      <button className="danger small" disabled={busy || cancelReason.trim().length < 3} onClick={() => void run(() => post(`/certificates/${c.id}/cancel`, { reason: cancelReason }))}>Cancel</button>
+                      <button
+                        className="danger small"
+                        disabled={busy || cancelReason.trim().length < 3}
+                        onClick={() => void run(() => post(`/certificates/${c.id}/cancel`, { reason: cancelReason }))}
+                      >
+                        Cancel
+                      </button>
                     )}
                     {can("RETRY_DELIVERY") && c.deliveryStatus === "FAILED" && c.status === "VALID" && (
-                      <button className="small" disabled={busy} onClick={() => void run(() => post(`/certificates/${c.id}/retry`))}>Retry</button>
+                      <button
+                        className="small"
+                        disabled={busy}
+                        onClick={() => void run(() => post(`/certificates/${c.id}/retry`))}
+                      >
+                        Retry
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -171,8 +278,26 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
         <h3>Candidates ({d.candidates.length})</h3>
         <div className="scroll">
           <table>
-            <thead><tr><th>#</th><th>Name</th><th>Phone</th><th>Course</th><th>Marks</th></tr></thead>
-            <tbody>{d.candidates.map((c, i) => <tr key={c.id}><td>{i + 1}</td><td>{c.name}</td><td>{c.phone}</td><td>{c.courseCode}</td><td>{c.marks ?? ""}</td></tr>)}</tbody>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Course</th>
+                <th>Marks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.candidates.map((c, i) => (
+                <tr key={c.id}>
+                  <td>{i + 1}</td>
+                  <td>{c.name}</td>
+                  <td>{c.phone}</td>
+                  <td>{c.courseCode}</td>
+                  <td>{c.marks ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       </section>
@@ -183,7 +308,8 @@ export default function BatchDetail({ id, tick, onChanged }: { id: string; tick:
         <ul className="history">
           {[...d.audit].reverse().map((a) => (
             <li key={a.id}>
-              <span className="when">{when(a.at)}</span> <strong>{a.actor}</strong>: {ACTION_LABEL[a.action] ?? a.action}
+              <span className="when">{when(a.at)}</span> <strong>{a.actor}</strong>:{" "}
+              {ACTION_LABEL[a.action] ?? a.action}
               {a.reason ? <em> “{a.reason}”</em> : null}
             </li>
           ))}

@@ -13,7 +13,9 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "format": "prettier --write src test",
+    "format:check": "prettier --check src test"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -37,9 +39,14 @@
     "@types/pdfkit": "0.17.7",
     "@types/qrcode": "1.5.6",
     "@types/supertest": "7.2.1",
+    "prettier": "3.10.1",
     "supertest": "7.3.2",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "5.1.1"
+  },
+  "prettier": {
+    "printWidth": 120,
+    "trailingComma": "all"
   }
 }

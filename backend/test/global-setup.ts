@@ -16,7 +16,12 @@ export default async function setup() {
   await admin.$executeRawUnsafe(`CREATE DATABASE certiflow_test`);
   await admin.$disconnect();
 
-  const env = { ...process.env, DATABASE_URL: TEST_DB, REDIS_URL: TEST_REDIS, JWT_SECRET: "test-secret-test-secret-test-secret-123456" };
+  const env = {
+    ...process.env,
+    DATABASE_URL: TEST_DB,
+    REDIS_URL: TEST_REDIS,
+    JWT_SECRET: "test-secret-test-secret-test-secret-123456",
+  };
   execSync("npx prisma migrate deploy", { stdio: "pipe", env });
   execSync("npx tsx src/seed.ts", { stdio: "pipe", env });
 

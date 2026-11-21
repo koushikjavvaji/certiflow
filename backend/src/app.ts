@@ -1,17 +1,14 @@
 import { randomUUID } from "node:crypto";
-import express, { type ErrorRequestHandler } from "express";
-import helmet from "helmet";
-import pinoHttp from "pino-http";
 import { ZodError } from "zod";
-import { HttpError } from "./errors";
-import { config } from "./config";
-import { logger } from "./logger";
+import { HttpError } from "./chain";
+import { config, logger } from "./config";
 import { createAuthRouter } from "./routes/auth";
 import { batchesRouter } from "./routes/batches";
 import { certificatesRouter } from "./routes/certificates";
-import { configRouter } from "./routes/config";
-import { healthRouter } from "./routes/health";
-import { liveRouter } from "./routes/live";
+import { systemRouter } from "./routes/system";
+import express, { type ErrorRequestHandler } from "express";
+import helmet from "helmet";
+import pinoHttp from "pino-http";
 
 export interface AppOptions {
   demoMode?: boolean;
@@ -40,12 +37,10 @@ export function createApp({ demoMode = config.demoMode }: AppOptions = {}) {
     }),
   );
 
-  app.use(healthRouter);
+  app.use(systemRouter);
   app.use(createAuthRouter(demoMode));
-  app.use(configRouter);
   app.use("/batches", batchesRouter);
   app.use(certificatesRouter);
-  app.use(liveRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not found" });

@@ -1,10 +1,7 @@
 import { createApp } from "./app";
-import { config } from "./config";
+import { config, logger } from "./config";
 import { disconnectDb } from "./db";
-import { closeLive } from "./live";
-import { logger } from "./logger";
-import { closeQueues } from "./queues";
-import { redis } from "./redis";
+import { closeLive, closeQueues, redis } from "./redis";
 
 const app = createApp();
 const server = app.listen(config.port, () => logger.info({ port: config.port }, "api listening"));

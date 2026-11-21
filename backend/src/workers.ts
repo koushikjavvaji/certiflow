@@ -1,12 +1,64 @@
 import { Worker, type Job } from "bullmq";
-import { config } from "./config";
-import { getSetting } from "./config-store";
-import { fanOutIssuance, markDeliveryFailed, processIssue } from "./issuance";
-import { logger } from "./logger";
-import { scanOverdue, sweepIssuance } from "./maintenance";
-import { createBullConnection, getQueues, QUEUE_EVENTS, QUEUE_ISSUANCE, QUEUE_MAINTENANCE } from "./queues";
-import type { WhatsAppClient } from "./whatsapp";
+import { prisma, writeAudit } from "./db";
+import { config, logger } from "./config";
+import { getSetting, getWorkflow } from "./config-store";
+import { fanOutIssuance, markDeliveryFailed, processIssue, type WhatsAppClient } from "./issuance";
+import { QUEUE_EVENTS, QUEUE_ISSUANCE, QUEUE_MAINTENANCE, createBullConnection, getQueues, publishLive } from "./redis";
 
+const SWEEP_EVERY_MS = 30_000; // how often approved-but-unfinished batches are re-offered
+const DEFAULT_OVERDUE_SCAN_SECONDS = 15;
+const MIN_OVERDUE_SCAN_SECONDS = 5;
+
+// ============ Housekeeping jobs ============
+// Safety net for work the event might have missed (API crashed after approving but before
+// queueing, Redis was restarted, ...): re-offer every APPROVED / ISSUING batch. Cheap and
+// idempotent, because each candidate's job has a fixed id.
+export async function sweepIssuance(): Promise<number> {
+  const batches = await prisma.batch.findMany({
+    where: { status: { in: ["APPROVED", "ISSUING"] } },
+    select: { id: true },
+  });
+  let queued = 0;
+  for (const b of batches) queued += await fanOutIssuance(b.id);
+  return queued;
+}
+
+// "Files sitting with an officer for days": any batch waiting longer than its step's SLA
+// is flagged ONCE (overdueAt), recorded in the audit log, and announced live. The state
+// office sees it in its "stuck" list without anyone chasing. SLA minutes are data
+// (WorkflowStep.slaMinutes), so lowering one in the database takes effect on the next scan.
+export async function scanOverdue(now = new Date()): Promise<number> {
+  const waiting = await prisma.batch.findMany({
+    where: { status: "IN_REVIEW", overdueAt: null, stepEnteredAt: { not: null }, currentStepKey: { not: null } },
+  });
+  let flagged = 0;
+  for (const batch of waiting) {
+    const step = (await getWorkflow(batch.workflowVersion)).find((s) => s.key === batch.currentStepKey);
+    if (!step?.slaMinutes || !batch.stepEnteredAt) continue;
+    const waitedMinutes = Math.floor((now.getTime() - batch.stepEnteredAt.getTime()) / 60_000);
+    if (waitedMinutes < step.slaMinutes) continue;
+
+    // Conditional update: even with several scanners running, only one flags it.
+    const { count } = await prisma.batch.updateMany({
+      where: { id: batch.id, status: "IN_REVIEW", overdueAt: null, currentStepKey: batch.currentStepKey },
+      data: { overdueAt: now },
+    });
+    if (count === 0) continue;
+    flagged++;
+    await writeAudit(prisma, {
+      actor: null,
+      action: "BATCH_OVERDUE",
+      entityType: "Batch",
+      entityId: batch.id,
+      batchId: batch.id,
+      metadata: { step: step.key, waitedMinutes, slaMinutes: step.slaMinutes },
+    });
+    await publishLive({ type: "batch.overdue", batchId: batch.id });
+  }
+  return flagged;
+}
+
+// ============ The background consumers ============
 // Starts the background consumers. Used by worker.ts (the worker container) and by the
 // tests. Run as many copies as you like: BullMQ hands each job to exactly one worker,
 // and a job whose worker dies is picked up again by another.
@@ -44,15 +96,19 @@ export function startWorkers(deps: { whatsapp: WhatsAppClient }, opts: { schedul
     }
   });
 
-  for (const w of [events, issuance, maintenance]) w.on("error", (err) => logger.error({ err: err.message }, "worker error"));
+  for (const w of [events, issuance, maintenance])
+    w.on("error", (err) => logger.error({ err: err.message }, "worker error"));
 
   if (opts.schedule !== false) {
     // upsert = safe when many worker containers start: still ONE schedule, run by one of them.
     // The overdue-scan interval is a database setting (read when a worker starts).
     const q = getQueues().maintenance;
     void (async () => {
-      const seconds = Math.max(5, await getSetting<number>("escalation.scanIntervalSeconds", 15));
-      await q.upsertJobScheduler("sweep", { every: 30_000 }, { name: "sweep" });
+      const seconds = Math.max(
+        MIN_OVERDUE_SCAN_SECONDS,
+        await getSetting<number>("escalation.scanIntervalSeconds", DEFAULT_OVERDUE_SCAN_SECONDS),
+      );
+      await q.upsertJobScheduler("sweep", { every: SWEEP_EVERY_MS }, { name: "sweep" });
       await q.upsertJobScheduler("overdue-scan", { every: seconds * 1000 }, { name: "overdue-scan" });
       logger.info({ overdueScanEverySeconds: seconds }, "maintenance schedules set");
     })().catch((err) => logger.error({ err }, "could not set maintenance schedules"));

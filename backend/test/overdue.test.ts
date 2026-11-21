@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { invalidateConfigCache } from "../src/config-store";
 import { rawPrisma } from "../src/db";
-import { subscribeLive, closeLive } from "../src/live";
-import { scanOverdue } from "../src/maintenance";
-import { api, approveOk, auditFor, batchRow, makeSubmittedBatch, U } from "./flow-helpers";
+import { closeLive, subscribeLive } from "../src/redis";
+import { scanOverdue } from "../src/workers";
+import { U, api, approveOk, auditFor, batchRow, makeSubmittedBatch } from "./helpers";
 
 const days = (n: number) => n * 24 * 60 * 60 * 1000;
 
@@ -22,7 +22,10 @@ describe("MOMENT 5: a batch sits too long with an officer", () => {
     expect(flags[0]!.metadata).toMatchObject({ step: "DISTRICT_REVIEW", slaMinutes: 2880 });
 
     // Someone senior finds out without anyone chasing:
-    const stuck = (await (await api(U.farah)).get("/batches?view=stuck")).body.batches as { id: string; overdue: boolean }[];
+    const stuck = (await (await api(U.farah)).get("/batches?view=stuck")).body.batches as {
+      id: string;
+      overdue: boolean;
+    }[];
     expect(stuck.find((b) => b.id === id)?.overdue).toBe(true);
     expect((await (await api(U.dev)).get("/batches?view=stuck")).status).toBe(403); // not for everyone
     expect((await (await api(U.anika)).get("/batches?view=stuck")).status).toBe(403);
@@ -68,7 +71,9 @@ describe("MOMENT 5: a batch sits too long with an officer", () => {
   });
 
   it("batches that are not waiting for review are never flagged", async () => {
-    const draft = await rawPrisma.batch.create({ data: { centreId: "20000000-0000-4000-8000-000000000001", courseName: "x", status: "DRAFT" } });
+    const draft = await rawPrisma.batch.create({
+      data: { centreId: "20000000-0000-4000-8000-000000000001", courseName: "x", status: "DRAFT" },
+    });
     await scanOverdue(new Date(Date.now() + days(30)));
     expect((await batchRow(draft.id)).overdueAt).toBeNull();
   });

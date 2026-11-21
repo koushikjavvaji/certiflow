@@ -1,13 +1,15 @@
 import { execSync } from "node:child_process";
-import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { CACHE_TTL_SECONDS, invalidateConfigCache } from "../src/config-store";
 import { rawPrisma } from "../src/db";
 import { redis } from "../src/redis";
-import { app, bearer, DEMO_USER_IDS, tokenFor } from "./helpers";
+import { DEMO_USER_IDS, app, bearer, tokenFor } from "./helpers";
+import request from "supertest";
 
 const getConfig = async () => {
-  const res = await request(app).get("/config").set(bearer(await tokenFor(DEMO_USER_IDS.anika)));
+  const res = await request(app)
+    .get("/config")
+    .set(bearer(await tokenFor(DEMO_USER_IDS.anika)));
   expect(res.status).toBe(200);
   return res.body as {
     settings: Record<string, unknown>;

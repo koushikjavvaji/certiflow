@@ -1,12 +1,10 @@
 process.env.SERVICE_NAME = "worker";
 
-import { config } from "./config";
+import { config, logger } from "./config";
 import { disconnectDb, prisma } from "./db";
-import { logger } from "./logger";
-import { closeQueues } from "./queues";
-import { redis } from "./redis";
+import { closeQueues, redis } from "./redis";
 import { startWorkers } from "./workers";
-import { createHttpWhatsApp } from "./whatsapp";
+import { createHttpWhatsApp } from "./issuance";
 
 // The background process: starts the queue consumers (issuance, events, housekeeping).
 // Slow or flaky work (PDFs, WhatsApp) happens here, never inside a user's request.

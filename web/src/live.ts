@@ -36,7 +36,10 @@ export function useLive(onChange: () => void, enabled: boolean) {
     // releases the lock so a waiting tab can take over (and we queue up again behind it).
     async function lead() {
       try {
-        const res = await fetch("/api/events", { headers: { authorization: `Bearer ${getToken()}` }, signal: stop.signal });
+        const res = await fetch("/api/events", {
+          headers: { authorization: `Bearer ${getToken()}` },
+          signal: stop.signal,
+        });
         if (!res.ok || !res.body) return;
         changed(); // catch up on anything missed while nobody was listening
         const reader = res.body.getReader();

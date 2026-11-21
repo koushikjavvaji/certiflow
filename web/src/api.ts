@@ -30,8 +30,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-export const post = <T,>(path: string, body: object = {}) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
-export const put = <T,>(path: string, body: object) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
+export const post = <T>(path: string, body: object = {}) =>
+  api<T>(path, { method: "POST", body: JSON.stringify(body) });
+export const put = <T>(path: string, body: object) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
 
 export interface DemoUser {
   id: string;
@@ -104,7 +105,14 @@ export interface BatchDetail {
     cancelReason: string | null;
     verifyCode?: string;
   }[];
-  audit: { id: string; at: string; actor: string; action: string; reason: string | null; correlationId: string | null }[];
+  audit: {
+    id: string;
+    at: string;
+    actor: string;
+    action: string;
+    reason: string | null;
+    correlationId: string | null;
+  }[];
   actions: string[];
 }
 

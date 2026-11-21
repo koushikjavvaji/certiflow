@@ -1,8 +1,18 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { rawPrisma } from "../src/db";
-import { app } from "./helpers";
-import { api, batchRow, csvOf, makeBatch, makeSubmittedBatch, nextPhone, otherCentreToken, randomCourse, U } from "./flow-helpers";
+import {
+  U,
+  api,
+  app,
+  batchRow,
+  csvOf,
+  makeBatch,
+  makeSubmittedBatch,
+  nextPhone,
+  otherCentreToken,
+  randomCourse,
+} from "./helpers";
 
 describe("MOMENT 1: a spreadsheet with a few bad rows", () => {
   it("reports exactly what is wrong, row by row, and saves nothing", async () => {
@@ -78,7 +88,8 @@ describe("MOMENT 1: a spreadsheet with a few bad rows", () => {
     const c = randomCourse();
     const shared = nextPhone();
     const make = (extra: string) => `name,phone,courseCode\nShared Person,${shared},${c}\n${extra}`;
-    const rowsFor = (n: number) => Array.from({ length: n }, (_, i) => `Person ${i + 1},${nextPhone()},${c}`).join("\n");
+    const rowsFor = (n: number) =>
+      Array.from({ length: n }, (_, i) => `Person ${i + 1},${nextPhone()},${c}`).join("\n");
     const anika = await api(U.anika);
     const [ra, rb] = await Promise.all([
       anika.put(`/batches/${a}/candidates`, { csv: make(rowsFor(9)) }),
@@ -95,9 +106,13 @@ describe("a person is certified once per course", () => {
     const c = randomCourse();
     const phone = nextPhone();
     const first = await makeBatch(0);
-    await (await api(U.anika)).put(`/batches/${first}/candidates`, { csv: `name,phone,courseCode\nAsha Rao,${phone},${c}` });
+    await (
+      await api(U.anika)
+    ).put(`/batches/${first}/candidates`, { csv: `name,phone,courseCode\nAsha Rao,${phone},${c}` });
     const second = await makeBatch(0);
-    const res = await (await api(U.anika)).put(`/batches/${second}/candidates`, { csv: `name,phone,courseCode\nAsha Rao,${phone},${c}` });
+    const res = await (
+      await api(U.anika)
+    ).put(`/batches/${second}/candidates`, { csv: `name,phone,courseCode\nAsha Rao,${phone},${c}` });
     expect(res.status).toBe(422);
     expect(res.body.errors[0]).toMatchObject({ row: 2, field: "phone" });
     expect(JSON.stringify(res.body)).not.toContain(first);
@@ -108,7 +123,9 @@ describe("a person is certified once per course", () => {
     const phone = `+91${nextPhone()}`;
     const batch = await makeBatch(0);
     await rawPrisma.candidate.create({ data: { batchId: batch, name: "A One", phone, courseCode: c } });
-    await expect(rawPrisma.candidate.create({ data: { batchId: batch, name: "A Two", phone, courseCode: c } })).rejects.toThrow();
+    await expect(
+      rawPrisma.candidate.create({ data: { batchId: batch, name: "A Two", phone, courseCode: c } }),
+    ).rejects.toThrow();
   });
 });
 
@@ -117,7 +134,14 @@ describe("only the owning centre can edit a batch", () => {
     const id = await makeBatch(3);
     const stranger = { authorization: `Bearer ${await otherCentreToken()}` };
     expect((await request(app).get(`/batches/${id}`).set(stranger)).status).toBe(404);
-    expect((await request(app).put(`/batches/${id}/candidates`).set(stranger).send({ csv: csvOf(2) })).status).toBe(404);
+    expect(
+      (
+        await request(app)
+          .put(`/batches/${id}/candidates`)
+          .set(stranger)
+          .send({ csv: csvOf(2) })
+      ).status,
+    ).toBe(404);
     expect((await request(app).post(`/batches/${id}/submit`).set(stranger)).status).toBe(404);
     const list = await request(app).get("/batches").set(stranger);
     expect(list.body.batches.map((b: { id: string }) => b.id)).not.toContain(id);

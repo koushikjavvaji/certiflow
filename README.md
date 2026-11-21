@@ -53,7 +53,7 @@ without a redeploy (see section 5).
 | What do officers see of candidates? | Phone numbers **masked** (last 4 digits); only the owning centre sees them in full | `view.ts` |
 | What do centres see of officers? | **Only the role** ("District officer"), never the individual's name, in approvals and history. Centres see their own name on their own actions. Staff see names (accountability) | `view.ts` |
 | Do candidates / employers have accounts? | **No.** They can only open the signed download link and the public verify page; neither shows any officer or internal data | |
-| Login | **Email + password** for every person (scrypt-hashed, rate limited). A **demo shortcut** (`DEMO_MODE=true`) additionally lets a reviewer switch person with no password, as the brief's demo setup asks; set it to `false` for the real thing | `routes/auth.ts`, `password.ts` |
+| Login | **Email + password** for every person (scrypt-hashed, rate limited). A **demo shortcut** (`DEMO_MODE=true`) additionally lets a reviewer switch person with no password, as the brief's demo setup asks; set it to `false` for the real thing | `routes/auth.ts`, `auth.ts` |
 
 ### The six moments that must work, and where each is proven
 | # | Moment | How it is handled | Proof (test file) |
@@ -178,7 +178,7 @@ the scan interval setting (`escalation.scanIntervalSeconds`) is read when a work
 
 ## 6. Tests
 
-123 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
+137 automated tests against the **real** Postgres and Redis (not mocks), because the rules being
 proven (unique constraints, row locks, queues) live there. They use their own database
 (`certiflow_test`, recreated every run) and their own Redis db and queue prefix, so they never
 touch demo data or get picked up by the running worker. They run the real queue with an in-process
@@ -191,7 +191,7 @@ cd backend && npm install && npm test
 | File | What it proves |
 |---|---|
 | `intake.test.ts` | Moment 1; replace-not-append; one person per course; centres cannot touch each other's batches |
-| `workflow.test.ts` | Moments 2 and 6; officer names hidden from centres; step order and the 49/50 boundary; rules-as-data edits; wrong role/district/step refused; withdraw; reject; audit trail; trace ids; live events |
+| `workflow.test.ts` | The chain base and step chain on their own; **adding a new approval step by inserting a row**; Moments 2 and 6; officer names hidden from centres; step order and the 49/50 boundary; rules-as-data edits; wrong role/district/step refused; withdraw; reject; audit trail; trace ids; live events |
 | `issuance.test.ts` | Moment 3; worker restart mid-batch; lost-event recovery; concurrent duplicate jobs; DB unique constraints; WhatsApp outage then retry |
 | `verify.test.ts` | Moment 4; public verify privacy; rate limit; download link security; cancelled = never sent |
 | `overdue.test.ts` | Moment 5; flagged once; SLA is a database value |
@@ -207,29 +207,77 @@ two-officer race test to run on 12 batches at once, because the original passed 
 
 ---
 
-## 7. Where to look (code tour)
+## 7. How the code is organised: every flow is a chain of small handlers
 
+The backend uses one idea throughout, the **chain of responsibility**. A request travels down a line of
+small handlers; each does **one job** and then does one of three things:
+
+| A handler... | by... | meaning |
+|---|---|---|
+| carries on | `return false` | "I checked / did my part; pass it to the next one" |
+| finishes the work | `return true` | "I dealt with it; stop here" |
+| refuses | `throw` (e.g. `notFound()`, `forbidden()`) | "this request is rejected; nothing further runs" |
+
+The request's data travels in a context object, so handlers keep no state and each chain is built once.
+The base class is in `backend/src/chain.ts` (about 20 lines). **Every flow reads as a list of handlers:**
+
+| Flow | The chain (in order) | File |
+|---|---|---|
+| **Approval path** (built from database rows) | district review → quality review (50+ only) → state approval | `workflow.ts` |
+| **A decision** (approve / send back / reject) | load batch → can you see it? → is it in review? → find its step → is it your turn? → approve / send back / reject | `workflow.ts` |
+| **Making a certificate** | load → create certificate → stop if cancelled → stop if already sent → make PDF → send WhatsApp → mark delivered → complete the batch | `issuance.ts` |
+| **Sign-in** | rate limit → find the person → check the password → issue a token | `routes/auth.ts` |
+| **Spreadsheet upload** | own the batch? → editable? → read and check rows → anyone in another batch? → save all | `routes/batches.ts` |
+| **One spreadsheet row** | name → phone → course → marks → duplicate in sheet → accept | `csv.ts` |
+| **Public verify** | rate limit → clean the code → find the certificate → describe it | `routes/certificates.ts` |
+| **Download a certificate** | (check the signed link, or check the person may see it) → find → not cancelled → send the PDF | `routes/certificates.ts` |
+
+(Express's own request pipeline, `helmet → body parser → request id → routes → 404 → error handler`, is the
+same pattern.) Things that are tools, not flows (the database client, config, the PDF drawing, the WhatsApp
+client) are plain modules the handlers use.
+
+### Adding a feature = write a handler, add it to the chain
+Each chain is declared in one place, as a list. Examples:
+
+```ts
+// 1. Block sign-in for people who are suspended: add ONE handler, then put it in the list.
+class CheckNotSuspended extends Handler<LoginContext> {
+  protected process(c: LoginContext) {
+    if (c.user?.suspended) throw forbidden("this account is suspended");
+    return false; // carry on
+  }
+}
+const loginChain = chainOf<LoginContext>(new RateLimit(), new FindUser(), new CheckNotSuspended(), new CheckPassword(), new IssueToken());
+
+// 2. Also tell the candidate by SMS when WhatsApp keeps failing: a handler between "send" and "mark delivered".
+// 3. Reject sheets where marks are all identical: a handler in the row chain, before AcceptRow.
+// 4. A new APPROVAL step (e.g. "Audit review"): no handler to write at all, just insert a WorkflowStep row.
+```
+No existing handler changes, and each new one can be tested on its own (see `workflow.test.ts`, "the generic chain").
+
+### Where to look
 ```
 backend/src/
-  app.ts, server.ts, worker.ts     Express app / API entry / worker entry
-  config.ts                        validated environment settings
-  db.ts                            Prisma client with central soft delete
-  config-store.ts                  reads Setting / WorkflowStep (Redis-cached)
-  auth.ts, middleware/authenticate.ts   tokens, who-are-you, role checks
-  workflow.ts                      THE approval engine (submit, decide, withdraw)
-  csv.ts                           spreadsheet validation (all errors at once)
-  issuance.ts                      certificate creation, PDF, WhatsApp, retries
-  maintenance.ts                   sweep + overdue scan
-  workers.ts, queues.ts            BullMQ consumers / queues
-  pdf.ts, whatsapp.ts              PDF + QR, provider client
-  live.ts, rate-limit.ts, audit.ts, view.ts, errors.ts
-  routes/                          batches, certificates (verify/download/cancel), auth, config, live, health
-backend/prisma/                    schema.prisma + migrations (hand-written SQL marked "Hand-written")
-backend/test/                      the tests
-fake-whatsapp/                     provider stand-in with failures and idempotency
-web/src/                           React: App, Dashboard, BatchDetail, Verify, Rules
-scripts/smoke.mjs                  end-to-end run against the live system
+  chain.ts          the Handler base class + the errors a handler throws to refuse
+  workflow.ts       the approval engine: steps chain, decision chain, entry points (submit / decide / withdraw)
+  issuance.ts       the certificate chain, the WhatsApp client, retries and recovery
+  csv.ts            spreadsheet row checks (a chain)
+  auth.ts           login tokens, password hashing, "who is calling" and role checks
+  view.ts           the read side: what each person may see, and which buttons make sense for them
+  routes/           auth (login chain) · batches (upload chain) · certificates (verify/download chains) · system (health, rules, live stream)
+  workers.ts        the background consumers and the repeating sweep / overdue scan
+  redis.ts          everything on Redis: client, rate limiting, job queues, live updates
+  db.ts             Prisma client with central soft delete, plus the append-only audit writer
+  config.ts         validated settings + the logger;  config-store.ts reads the rules from the database
+  pdf.ts            the certificate PDF, QR code and signed download links
+  app.ts · server.ts · worker.ts · seed.ts     Express app, the two entry points, demo data
+backend/prisma/     schema.prisma + migrations (hand-written SQL is marked "Hand-written")
+backend/test/       the tests (helpers.ts has the shared setup)
+fake-whatsapp/      provider stand-in with failures and idempotency
+web/src/            React: App (sign-in, rules panel), Dashboard, BatchDetail, Verify, plus api / live / format helpers
+scripts/smoke.mjs   end-to-end run against the live system
 ```
+Code style is enforced with Prettier: `npm run format` (and `npm run format:check`) in `backend/` and `web/`.
 
 ---
 
@@ -238,7 +286,7 @@ scripts/smoke.mjs                  end-to-end run against the live system
 This project was built with an AI coding assistant (Claude Code) working from the problem statement.
 It wrote the code; I directed it, reviewed the decisions above, and made the product choices.
 How the output was checked, not just trusted:
-- **Everything was run:** typechecks, 123 tests (repeatedly, to expose flakiness), the full stack in
+- **Everything was run:** typechecks, 137 tests (repeatedly, to expose flakiness), the full stack in
   Docker, `scripts/smoke.mjs`, and the UI in a real browser.
 - **Tests were tested:** deliberate bugs (no row lock, random idempotency key, disabled soft-delete
   filter) were introduced to confirm the right tests fail.

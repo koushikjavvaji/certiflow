@@ -1,11 +1,19 @@
 import { randomBytes } from "node:crypto";
-import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { rawPrisma } from "../src/db";
 import { processIssue } from "../src/issuance";
-import { app } from "./helpers";
-import { api, approveFully, auditFor, createStubWhatsApp, makeSubmittedBatch, otherCentreToken, U } from "./flow-helpers";
-import { bearer } from "./helpers";
+import {
+  U,
+  api,
+  app,
+  approveFully,
+  auditFor,
+  bearer,
+  createStubWhatsApp,
+  makeSubmittedBatch,
+  otherCentreToken,
+} from "./helpers";
+import request from "supertest";
 
 // Issues certificates directly (no worker) so these tests only look at verify / cancel.
 async function issuedBatch(n = 3) {
@@ -27,7 +35,12 @@ describe("anyone can check a certificate, without logging in", () => {
     const { certificates, candidates } = await issuedBatch();
     const res = await verify(certificates[0]!.verifyCode);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ found: true, status: "VALID", number: certificates[0]!.number, course: "Welding Basics" });
+    expect(res.body).toMatchObject({
+      found: true,
+      status: "VALID",
+      number: certificates[0]!.number,
+      course: "Welding Basics",
+    });
     expect(res.body.holder).toContain("*");
     expect(res.body.holder).not.toContain("Person");
     const text = JSON.stringify(res.body);
@@ -77,7 +90,9 @@ describe("MOMENT 4: the state office cancels a fake certificate", () => {
     const cert = certificates[0]!;
     expect((await verify(cert.verifyCode)).body.status).toBe("VALID"); // genuine before
 
-    const cancel = await (await api(U.farah)).post(`/certificates/${cert.id}/cancel`, { reason: "Issued in error: duplicate of another record" });
+    const cancel = await (
+      await api(U.farah)
+    ).post(`/certificates/${cert.id}/cancel`, { reason: "Issued in error: duplicate of another record" });
     expect(cancel.status).toBe(200);
 
     const after = await verify(cert.verifyCode); // immediately after
@@ -87,7 +102,11 @@ describe("MOMENT 4: the state office cancels a fake certificate", () => {
     expect((await verify(certificates[1]!.verifyCode)).body.status).toBe("VALID"); // others are untouched
 
     const trail = (await auditFor(id)).find((a) => a.action === "CERTIFICATE_CANCELLED")!;
-    expect(trail).toMatchObject({ actorName: "Farah", reason: "Issued in error: duplicate of another record", entityId: cert.id });
+    expect(trail).toMatchObject({
+      actorName: "Farah",
+      reason: "Issued in error: duplicate of another record",
+      entityId: cert.id,
+    });
   });
 
   it("a cancelled certificate can no longer be downloaded", async () => {
@@ -132,11 +151,14 @@ describe("the candidate's download link", () => {
     const { stub } = await issuedBatch(1);
     const text = [...stub.messages.values()][0]!.text;
     const link = text.match(/\/api(\/d\/[^\s]+)/)![1]!;
-    const res = await request(app).get(link).buffer(true).parse((r, cb) => {
-      const chunks: Buffer[] = [];
-      r.on("data", (c: Buffer) => chunks.push(c));
-      r.on("end", () => cb(null, Buffer.concat(chunks)));
-    });
+    const res = await request(app)
+      .get(link)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("application/pdf");
     expect(res.headers["content-disposition"]).toContain(".pdf");
@@ -180,12 +202,16 @@ describe("certificate files", () => {
 
 describe("downloading a certificate from the site (logged in)", () => {
   const pdfOf = async (userId: string, certId: string) => {
-    const headers = bearer((await (await import("./helpers")).tokenFor(userId)));
-    return request(app).get(`/certificates/${certId}/pdf`).set(headers).buffer(true).parse((r, cb) => {
-      const chunks: Buffer[] = [];
-      r.on("data", (c: Buffer) => chunks.push(c));
-      r.on("end", () => cb(null, Buffer.concat(chunks)));
-    });
+    const headers = bearer(await (await import("./helpers")).tokenFor(userId));
+    return request(app)
+      .get(`/certificates/${certId}/pdf`)
+      .set(headers)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
   };
 
   it("everyone who may see the batch can download a real PDF", async () => {
@@ -203,7 +229,9 @@ describe("downloading a certificate from the site (logged in)", () => {
     const { certificates } = await issuedBatch(1);
     const id = certificates[0]!.id;
     expect((await pdfOf(U.isha, id)).status).toBe(404); // officer of another district
-    const stranger = await request(app).get(`/certificates/${id}/pdf`).set({ authorization: `Bearer ${await otherCentreToken()}` });
+    const stranger = await request(app)
+      .get(`/certificates/${id}/pdf`)
+      .set({ authorization: `Bearer ${await otherCentreToken()}` });
     expect(stranger.status).toBe(404); // a different training centre
     expect((await request(app).get(`/certificates/${id}/pdf`)).status).toBe(401); // not logged in
     expect((await pdfOf(U.farah, crypto.randomUUID())).status).toBe(404);
