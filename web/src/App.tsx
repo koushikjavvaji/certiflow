@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError, getToken, post, setToken, type ConfigView, type DemoUser, type Me } from "./api";
 import Dashboard from "./Dashboard";
 import { BRAND, BRAND_TELUGU, Icon, ROLE_LABEL, TAGLINE, ToastProvider } from "./ui";
@@ -30,6 +30,54 @@ function Brand() {
       {BRAND}
       <span className="brand-te">{BRAND_TELUGU}</span>
     </a>
+  );
+}
+
+// The signed-in person's menu: one profile button that opens a small panel (role, verify link, sign out).
+// Replaces a crowded row of separate items, and cannot wrap on narrow screens.
+function UserMenu({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="menu" ref={box}>
+      <button className="menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="avatar">{me.name.charAt(0)}</span>
+        <span className="menu-name">{me.name}</span>
+        <Icon name="chevron" size={16} />
+      </button>
+      {open && (
+        <div className="menu-panel" role="menu">
+          <div className="menu-head">
+            <span className="avatar lg">{me.name.charAt(0)}</span>
+            <div>
+              <b>{me.name}</b>
+              <span>{ROLE_LABEL[me.role] ?? me.role}</span>
+            </div>
+          </div>
+          <a className="menu-item" role="menuitem" href="/verify" target="_blank" rel="noreferrer">
+            <Icon name="shield" size={16} /> Verify a certificate
+          </a>
+          <button className="menu-item" role="menuitem" onClick={onSignOut}>
+            <Icon name="logout" size={16} /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -202,19 +250,7 @@ function Staff() {
         <div className="topbar-inner">
           <Brand />
           <div className="spacer" />
-          <a className="btn ghost sm" href="/verify" target="_blank" rel="noreferrer">
-            Verify a certificate
-          </a>
-          <div className="user-chip">
-            <div className="avatar">{me.name.charAt(0)}</div>
-            <div className="user-meta">
-              <b>{me.name}</b>
-              <span>{ROLE_LABEL[me.role] ?? me.role}</span>
-            </div>
-          </div>
-          <button className="btn ghost sm" onClick={signOut} aria-label="Sign out">
-            <Icon name="logout" size={16} /> Sign out
-          </button>
+          <UserMenu me={me} onSignOut={signOut} />
         </div>
       </header>
       <main className="container">

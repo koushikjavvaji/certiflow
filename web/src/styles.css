@@ -169,11 +169,6 @@ code {
 .spacer {
   flex: 1;
 }
-.user-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .avatar {
   width: 32px;
   height: 32px;
@@ -183,21 +178,6 @@ code {
   display: grid;
   place-items: center;
   font-weight: 600;
-}
-.user-meta {
-  line-height: 1.25;
-  text-align: right;
-}
-.user-meta b {
-  display: block;
-  font-weight: 600;
-  font-size: 15px;
-}
-.user-meta span {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--muted);
 }
 .container {
   max-width: 1240px;
@@ -1047,4 +1027,98 @@ details[open] > summary {
 tr.struck .holder,
 tr.struck .mono {
   text-decoration: line-through;
+}
+
+/* ---------- Profile menu (top right) ---------- */
+.avatar.lg {
+  width: 40px;
+  height: 40px;
+  font-size: 17px;
+}
+.menu {
+  position: relative;
+}
+.menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.menu-trigger:hover,
+.menu-trigger[aria-expanded="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.menu-name {
+  font-weight: 600;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 260px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  z-index: 40;
+}
+.menu-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 12px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.menu-head b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.menu-head span:not(.avatar) {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.menu-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+@media (max-width: 560px) {
+  .menu-name {
+    display: none;
+  }
+  .menu-trigger {
+    padding-right: 6px;
+  }
 }

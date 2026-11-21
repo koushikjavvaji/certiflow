@@ -85,6 +85,7 @@ const ICONS = {
   inbox: "M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z",
   plus: "M12 5v14M5 12h14",
   undo: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2",
+  chevron: "m6 9 6 6 6-6",
 } as const;
 
 export function Icon({ name, size = 18 }: { name: keyof typeof ICONS; size?: number }) {
