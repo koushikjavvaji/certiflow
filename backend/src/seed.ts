@@ -75,7 +75,7 @@ async function seedSettings() {
     {
       key: "escalation.scanIntervalSeconds",
       value: 60,
-      description: "How often the stuck-batch scan runs. Lower it for demos.",
+      description: "Seconds between stuck-batch scans (minimum 5). Read when a worker starts, so restart the worker after changing it.",
     },
   ];
   for (const s of defaults) {

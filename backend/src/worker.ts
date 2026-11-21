@@ -1,21 +1,28 @@
 process.env.SERVICE_NAME = "worker";
 
+import { config } from "./config";
 import { disconnectDb, prisma } from "./db";
 import { logger } from "./logger";
+import { closeQueues } from "./queues";
 import { redis } from "./redis";
+import { startWorkers } from "./workers";
+import { createHttpWhatsApp } from "./whatsapp";
 
-// Phase 1: an empty shell that proves the worker container can reach Postgres and Redis.
-// Phase 4 adds the BullMQ consumers (PDF generation, WhatsApp delivery) here.
+// The background process: starts the queue consumers (issuance, events, housekeeping).
+// Slow or flaky work (PDFs, WhatsApp) happens here, never inside a user's request.
 async function main() {
   await prisma.$queryRaw`SELECT 1`;
   await redis.ping();
-  logger.info("worker ready (no job consumers yet)");
+  const workers = startWorkers({ whatsapp: createHttpWhatsApp() });
+  logger.info({ concurrency: config.workerConcurrency }, "worker ready");
 
   const heartbeat = setInterval(() => logger.debug("worker alive"), 60_000);
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "worker shutting down");
     clearInterval(heartbeat);
+    await workers.close(); // finish the jobs in hand first
+    await closeQueues();
     await disconnectDb();
     redis.disconnect();
     process.exit(0);

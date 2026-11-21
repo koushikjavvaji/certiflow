@@ -9,6 +9,8 @@ x-backend-env: &backend-env
   JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-use-a-long-random-string}
   DEMO_MODE: ${DEMO_MODE:-true}
   WHATSAPP_URL: http://fake-whatsapp:4000
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080} # used in QR codes and WhatsApp links
+  CERT_DIR: /data/certs # certificate PDFs; a volume shared by api and worker (S3 in production)
   NODE_ENV: production
 
 services:
@@ -44,6 +46,8 @@ services:
 
   fake-whatsapp:
     build: ./fake-whatsapp
+    environment:
+      FAKE_MODE: ${FAKE_MODE:-flaky} # flaky | reliable | down (also switchable live: PUT :4000/mode)
     ports:
       - "4000:4000"
     healthcheck:
@@ -62,6 +66,8 @@ services:
       PORT: "3000"
     ports:
       - "3000:3000"
+    volumes:
+      - certs:/data/certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,12 +80,16 @@ services:
       retries: 20
       start_period: 15s
 
-  # Same image as the API, different entrypoint. Scales separately from the API.
+  # Same image as the API, different entrypoint. Scales separately from the API:
+  #   docker compose up -d --scale worker=3
+  # (BullMQ gives each job to exactly one worker; jobs of a dead worker are re-run.)
   worker:
     build: ./backend
     command: ["node", "dist/worker.js"]
     environment:
       <<: *backend-env
+    volumes:
+      - certs:/data/certs
     restart: unless-stopped
     depends_on:
       api:
@@ -98,3 +108,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  certs:

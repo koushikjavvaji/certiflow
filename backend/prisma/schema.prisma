@@ -71,6 +71,7 @@ model Centre {
 
   district District @relation(fields: [districtId], references: [id])
   users    User[]
+  batches  Batch[]
 
   @@index([districtId])
 }
@@ -150,4 +151,176 @@ model WorkflowStep {
   meta              Json      @default("{}")
 
   @@index([workflowVersion, position])
+}
+
+// ============================================================================
+// The certificate flow (Phase 2+)
+// ============================================================================
+
+enum BatchStatus {
+  DRAFT // centre is still adding candidates
+  IN_REVIEW // waiting at currentStepKey
+  CHANGES_REQUESTED // sent back; centre must fix and resubmit
+  REJECTED // closed for good
+  APPROVED // all steps passed; issuance not started yet
+  ISSUING // certificates are being generated and sent
+  COMPLETED // every certificate is SENT or has FAILED (see deliveryStatus)
+}
+
+enum CertificateStatus {
+  VALID
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED // gave up after all retries; the state office can retry
+}
+
+// A group of candidates a training centre sends for certification.
+//   version          bumps when a sent-back batch is resubmitted (if approvals reset);
+//                    approvals are stored per version, so old ones never count again
+//   workflowVersion  which WorkflowStep version this batch started under
+//   currentStepKey   where it is waiting (a WorkflowStep.key); null when not in review
+//   stepEnteredAt    when it arrived at that step: the SLA clock starts here
+//   overdueAt        set once when it breaches the step's SLA (escalation fired)
+model Batch {
+  id              String      @id @default(uuid()) @db.Uuid
+  centreId        String      @db.Uuid
+  courseName      String
+  status          BatchStatus @default(DRAFT)
+  workflowVersion Int         @default(1)
+  version         Int         @default(1)
+  currentStepKey  String?
+  stepEnteredAt   DateTime?
+  overdueAt       DateTime?
+  lastReason      String?
+  candidateCount  Int         @default(0)
+  submittedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  isActive        Boolean     @default(true)
+  createdById     String?     @db.Uuid
+  updatedById     String?     @db.Uuid
+  meta            Json        @default("{}")
+
+  centre       Centre        @relation(fields: [centreId], references: [id])
+  candidates   Candidate[]
+  approvals    Approval[]
+  certificates Certificate[]
+
+  @@index([centreId])
+  @@index([status])
+}
+
+// One person to certify. A person can appear once per course among ACTIVE rows
+// (partial unique index on courseCode + phone in the migration), which blocks the same
+// candidate being certified twice for the same course through different batches.
+model Candidate {
+  id          String   @id @default(uuid()) @db.Uuid
+  batchId     String   @db.Uuid
+  name        String
+  phone       String // normalised, e.g. +919876543210
+  courseCode  String
+  marks       Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdById String?  @db.Uuid
+  updatedById String?  @db.Uuid
+  meta        Json     @default("{}")
+
+  batch       Batch        @relation(fields: [batchId], references: [id])
+  certificate Certificate?
+
+  @@index([batchId])
+}
+
+// One officer's approval at one step of one batch version. The unique key means an
+// officer cannot approve the same step twice. Withdrawing sets isActive = false; the
+// full history of who did what lives in AuditLog.
+model Approval {
+  id           String   @id @default(uuid()) @db.Uuid
+  batchId      String   @db.Uuid
+  batchVersion Int
+  stepKey      String
+  officerId    String   @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  isActive     Boolean  @default(true)
+  createdById  String?  @db.Uuid
+  updatedById  String?  @db.Uuid
+  meta         Json     @default("{}")
+
+  batch Batch @relation(fields: [batchId], references: [id])
+
+  @@unique([batchId, batchVersion, stepKey, officerId])
+  @@index([batchId])
+}
+
+// Append-only record of every decision and system action. No updatedAt / isActive on
+// purpose, and the database refuses UPDATE, DELETE and TRUNCATE (trigger in the
+// migration): a decision record must never be edited or hidden.
+// actorName is copied in so the trail stays readable even if a user is later removed.
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorId       String?  @db.Uuid // null = the system (worker, scheduler)
+  actorName     String?
+  action        String
+  entityType    String
+  entityId      String
+  batchId       String?  @db.Uuid
+  reason        String?
+  metadata      Json     @default("{}")
+  correlationId String? // the request / job that caused it, to follow one story end to end
+  createdAt     DateTime @default(now())
+
+  @@index([batchId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// One certificate per candidate (unique candidateId). Created by the worker, so
+// running the same job twice can never make a second one.
+//   number      PSM-<year>-<6 digits> from a database sequence (unique)
+//   verifyCode  random, unguessable code printed on the PDF / in its QR; the public
+//               verify page looks certificates up by this, not by the guessable number
+model Certificate {
+  id             String            @id @default(uuid()) @db.Uuid
+  candidateId    String            @unique @db.Uuid
+  batchId        String            @db.Uuid
+  number         String            @unique
+  verifyCode     String            @unique
+  status         CertificateStatus @default(VALID)
+  deliveryStatus DeliveryStatus    @default(PENDING)
+  deliveredAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  cancelledById  String?           @db.Uuid
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  isActive       Boolean           @default(true)
+  createdById    String?           @db.Uuid
+  updatedById    String?           @db.Uuid
+  meta           Json              @default("{}")
+
+  candidate Candidate         @relation(fields: [candidateId], references: [id])
+  batch     Batch             @relation(fields: [batchId], references: [id])
+  attempts  DeliveryAttempt[]
+
+  @@index([batchId])
+}
+
+// One row per WhatsApp send attempt (success or failure): how a delivery went.
+model DeliveryAttempt {
+  id            String   @id @default(uuid()) @db.Uuid
+  certificateId String   @db.Uuid
+  attemptNo     Int
+  ok            Boolean
+  error         String?
+  createdAt     DateTime @default(now())
+
+  certificate Certificate @relation(fields: [certificateId], references: [id])
+
+  @@index([certificateId])
 }

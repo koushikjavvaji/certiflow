@@ -1,7 +1,9 @@
 import { createApp } from "./app";
 import { config } from "./config";
 import { disconnectDb } from "./db";
+import { closeLive } from "./live";
 import { logger } from "./logger";
+import { closeQueues } from "./queues";
 import { redis } from "./redis";
 
 const app = createApp();
@@ -12,6 +14,8 @@ const server = app.listen(config.port, () => logger.info({ port: config.port }, 
 function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   server.close(async () => {
+    closeLive();
+    await closeQueues();
     await disconnectDb();
     redis.disconnect();
     process.exit(0);

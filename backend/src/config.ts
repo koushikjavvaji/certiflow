@@ -11,6 +11,15 @@ const schema = z.object({
   PORT: z.coerce.number().int().default(3000),
   NODE_ENV: z.string().default("development"),
   LOG_LEVEL: z.string().default("info"),
+  // --- queue / delivery ---
+  QUEUE_PREFIX: z.string().default("certiflow"), // namespaces Redis keys (tests use their own)
+  PUBLIC_BASE_URL: z.string().default("http://localhost:8080"), // used in QR codes and WhatsApp links
+  CERT_DIR: z.string().default("./.data/certs"), // where generated PDFs are stored
+  DELIVERY_ATTEMPTS: z.coerce.number().int().min(1).default(8), // tries per certificate before giving up
+  RETRY_BASE_DELAY_MS: z.coerce.number().int().min(1).default(2000), // exponential backoff base
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(5),
+  WHATSAPP_RATE_PER_SEC: z.coerce.number().int().min(1).default(20), // cap on provider calls per second
+  VERIFY_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(120), // public lookups per IP
 });
 
 const parsed = schema.safeParse(process.env);
@@ -30,4 +39,12 @@ export const config = {
   port: env.PORT,
   isProduction: env.NODE_ENV === "production",
   logLevel: env.LOG_LEVEL,
+  queuePrefix: env.QUEUE_PREFIX,
+  publicBaseUrl: env.PUBLIC_BASE_URL.replace(/\/$/, ""),
+  certDir: env.CERT_DIR,
+  deliveryAttempts: env.DELIVERY_ATTEMPTS,
+  retryBaseDelayMs: env.RETRY_BASE_DELAY_MS,
+  workerConcurrency: env.WORKER_CONCURRENCY,
+  whatsappRatePerSec: env.WHATSAPP_RATE_PER_SEC,
+  verifyRateLimitPerMin: env.VERIFY_RATE_LIMIT_PER_MIN,
 } as const;

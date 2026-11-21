@@ -6,7 +6,11 @@ export const setToken = (t: string | null) =>
   t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY);
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public body?: unknown,
+  ) {
     super(message);
   }
 }
@@ -22,9 +26,12 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (body as { error?: string }).error ?? res.statusText);
+  if (!res.ok) throw new ApiError(res.status, (body as { error?: string }).error ?? res.statusText, body);
   return body as T;
 }
+
+export const post = <T,>(path: string, body: object = {}) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
+export const put = <T,>(path: string, body: object) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
 
 export interface DemoUser {
   id: string;
@@ -53,4 +60,56 @@ export interface WorkflowStep {
 export interface ConfigView {
   settings: Record<string, unknown>;
   workflow: { version: number; steps: WorkflowStep[] };
+}
+
+export type View = "waiting" | "all" | "stuck";
+
+export interface BatchSummary {
+  id: string;
+  courseName: string;
+  centreName: string;
+  status: string;
+  candidateCount: number;
+  stepName: string | null;
+  approvalsHave: number;
+  approvalsNeed: number | null;
+  overdue: boolean;
+  lastReason: string | null;
+  waitingForMe: boolean;
+  updatedAt: string;
+}
+
+export interface BatchDetail {
+  batch: {
+    id: string;
+    courseName: string;
+    centreName: string;
+    status: string;
+    version: number;
+    candidateCount: number;
+    lastReason: string | null;
+    overdue: boolean;
+    stepName: string | null;
+    approvalsNeed: number | null;
+  };
+  approvals: { officer: string; at: string }[];
+  candidates: { id: string; name: string; phone: string; courseCode: string; marks: number | null }[];
+  certificates: {
+    id: string;
+    number: string;
+    holder: string;
+    status: string;
+    deliveryStatus: string;
+    attempts: number;
+    cancelReason: string | null;
+    verifyCode?: string;
+  }[];
+  audit: { id: string; at: string; actor: string; action: string; reason: string | null; correlationId: string | null }[];
+  actions: string[];
+}
+
+export interface RowError {
+  row: number;
+  field?: string;
+  message: string;
 }

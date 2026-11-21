@@ -3,11 +3,15 @@ import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { ZodError } from "zod";
+import { HttpError } from "./errors";
 import { config } from "./config";
 import { logger } from "./logger";
 import { createAuthRouter } from "./routes/auth";
+import { batchesRouter } from "./routes/batches";
+import { certificatesRouter } from "./routes/certificates";
 import { configRouter } from "./routes/config";
 import { healthRouter } from "./routes/health";
+import { liveRouter } from "./routes/live";
 
 export interface AppOptions {
   demoMode?: boolean;
@@ -17,10 +21,11 @@ export function createApp({ demoMode = config.demoMode }: AppOptions = {}) {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", 1); // exactly one proxy (nginx) in front: req.ip is the real caller
   app.use(helmet());
   // No CORS: the browser only talks to its own origin (nginx in Docker, the Vite
   // proxy in dev), which forwards /api to this server. Cross-origin calls are refused.
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "2mb" }));
 
   // Request id = correlation id. Returned to the caller and attached to every log line.
   app.use(
@@ -38,12 +43,19 @@ export function createApp({ demoMode = config.demoMode }: AppOptions = {}) {
   app.use(healthRouter);
   app.use(createAuthRouter(demoMode));
   app.use(configRouter);
+  app.use("/batches", batchesRouter);
+  app.use(certificatesRouter);
+  app.use(liveRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not found" });
   });
 
   const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
+      return;
+    }
     if (err instanceof ZodError) {
       res.status(400).json({ error: "invalid input", issues: err.issues });
       return;

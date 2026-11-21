@@ -14,6 +14,9 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
+# Certificate PDFs are written here (a volume in docker-compose).
+RUN mkdir -p /data/certs && chown -R node:node /data
+
 USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

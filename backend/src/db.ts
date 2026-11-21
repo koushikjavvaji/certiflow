@@ -54,6 +54,9 @@ export const prisma = rawPrisma.$extends({
   },
 });
 
+// Type of "something you can run queries on": the client itself or a transaction.
+export type Db = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends">;
+
 export async function disconnectDb() {
   await rawPrisma.$disconnect();
 }
