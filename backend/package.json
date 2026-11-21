@@ -2,7 +2,7 @@
   "name": "certiflow-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "CertiFlow API and background worker (same codebase, two entrypoints)",
+  "description": "Dhruva API and background worker (same codebase, two entrypoints)",
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",

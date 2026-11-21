@@ -1,8 +1,9 @@
-# CertiFlow
+# Dhruva (ధ్రువ)
 
-Certificate issuance for the (fictional) Pragati Skills Mission. Training centres upload passed batches, officers
-approve them in stages, every candidate gets a certificate on WhatsApp, and anyone can check a certificate is
-genuine without logging in.
+*Dhruva* comes from the Telugu word *ధ్రువపత్రం* (dhruvapatram), a certificate; it also means "certain, unchanging".
+It issues skilling certificates for the (fictional) Pragati Skills Mission: training centres upload passed batches,
+officers approve them in stages, every candidate gets a certificate on WhatsApp, and anyone can check a certificate
+is genuine without logging in.
 
 **Run it:** `docker compose up --build`, then open http://localhost:8080. Full steps in [SETUP.md](SETUP.md).
 **Production plan:** [DEPLOYMENT.md](DEPLOYMENT.md).

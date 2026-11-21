@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, post, type BatchSummary, type Me, type View } from "./api";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { api, post, type BatchSummary, type Me, type View, type WorkflowStep } from "./api";
 import BatchDetail from "./BatchDetail";
-import { STATUS_LABEL } from "./format";
 import { useLive } from "./live";
+import { ago, Chip, EmptyState, Icon, Progress, Skeleton, StatusBadge, useToast } from "./ui";
 
 const TABS: Record<string, { view: View; label: string }[]> = {
   CENTRE: [{ view: "all", label: "My batches" }],
@@ -21,93 +21,181 @@ const TABS: Record<string, { view: View; label: string }[]> = {
   ],
 };
 
-export default function Dashboard({ me }: { me: Me }) {
+const EMPTY: Record<View, { title: string; text: string }> = {
+  waiting: { title: "You're all caught up", text: "Nothing is waiting for your decision right now." },
+  stuck: { title: "Nothing is stuck", text: "No batch has waited past its time limit." },
+  all: { title: "No batches yet", text: "They will appear here as soon as they exist." },
+};
+
+export default function Dashboard({ me, steps }: { me: Me; steps: WorkflowStep[] }) {
   const tabs = TABS[me.role] ?? [];
+  const toast = useToast();
   const [view, setView] = useState<View>(tabs[0]?.view ?? "all");
-  const [batches, setBatches] = useState<BatchSummary[]>([]);
-  const [stuck, setStuck] = useState(0);
+  const [lists, setLists] = useState<Partial<Record<View, BatchSummary[]>>>({});
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [course, setCourse] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   useLive(reload, true); // changes made by anyone appear here without refreshing
 
+  // One request per tab, so every tab can show its own count.
   useEffect(() => {
-    api<{ batches: BatchSummary[] }>(`/batches?view=${view}`)
-      .then((r) => setBatches(r.batches))
-      .catch((e) => setError(e.message));
-    if (me.role === "STATE")
-      api<{ batches: BatchSummary[] }>("/batches?view=stuck")
-        .then((r) => setStuck(r.batches.length))
-        .catch(() => undefined);
-  }, [view, tick, me.role]);
+    let cancelled = false;
+    Promise.all(
+      tabs.map(
+        async (t) => [t.view, (await api<{ batches: BatchSummary[] }>(`/batches?view=${t.view}`)).batches] as const,
+      ),
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        setLists(Object.fromEntries(entries));
+        setLoading(false);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        toast(e.message, "error");
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tick, me.role]);
 
-  async function create(e: React.FormEvent) {
+  async function create(e: FormEvent) {
     e.preventDefault();
+    setCreating(true);
     try {
       const { id } = await post<{ id: string }>("/batches", { courseName: course });
       setCourse("");
       setSelected(id);
+      toast("Batch created. Now upload your candidates.");
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not create");
+      toast(err instanceof Error ? err.message : "could not create the batch", "error");
+    } finally {
+      setCreating(false);
     }
   }
+
+  const batches = lists[view] ?? [];
+  const stuckCount = lists.stuck?.length ?? 0;
 
   return (
     <div className="split">
       <div>
-        {me.role === "STATE" && stuck > 0 && view !== "stuck" && (
-          <button className="alert" onClick={() => setView("stuck")}>
-            ⚠ {stuck} batch(es) are stuck past their time limit. View
+        {me.role === "STATE" && stuckCount > 0 && view !== "stuck" && (
+          <button className="alert-banner" onClick={() => setView("stuck")}>
+            <Icon name="alert" /> {stuckCount} {stuckCount === 1 ? "batch is" : "batches are"} stuck past the time
+            limit. Review now
           </button>
         )}
-        <div className="tabs">
-          {tabs.map((t) => (
-            <button key={t.view} className={view === t.view ? "tab on" : "tab"} onClick={() => setView(t.view)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+
+        {tabs.length > 1 && (
+          <div className="tabs" role="tablist">
+            {tabs.map((t) => {
+              const n = lists[t.view]?.length ?? 0;
+              return (
+                <button
+                  key={t.view}
+                  role="tab"
+                  aria-selected={view === t.view}
+                  className={`tab ${view === t.view ? "on" : ""}`}
+                  onClick={() => setView(t.view)}
+                >
+                  {t.label}
+                  <span className={`count ${n === 0 ? "zero" : ""}`}>{n}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {me.role === "CENTRE" && (
-          <form className="row new" onSubmit={create}>
-            <input
-              placeholder="New batch: course name, e.g. Welding Basics"
-              value={course}
-              onChange={(e) => setCourse(e.target.value)}
-            />
-            <button className="primary" disabled={course.trim().length < 2}>
-              Create
-            </button>
+          <form className="card new-batch" onSubmit={create}>
+            <div className="card-head">
+              <h3>
+                <Icon name="plus" /> New batch
+              </h3>
+            </div>
+            <div className="row">
+              <input
+                className="input grow"
+                placeholder="Course name, e.g. Welding Basics"
+                value={course}
+                onChange={(e) => setCourse(e.target.value)}
+                aria-label="Course name"
+              />
+              <button className="btn primary" disabled={creating || course.trim().length < 2}>
+                Create
+              </button>
+            </div>
           </form>
         )}
-        {error && <p className="error">{error}</p>}
-        <ul className="batches">
-          {batches.length === 0 && <li className="muted empty">Nothing here.</li>}
-          {batches.map((b) => (
-            <li key={b.id}>
-              <button className={`batch ${selected === b.id ? "on" : ""}`} onClick={() => setSelected(b.id)}>
-                <span className="b-title">{b.courseName}</span>
-                <span className={`badge ${b.status.toLowerCase()}`}>{STATUS_LABEL[b.status] ?? b.status}</span>
-                <span className="muted b-sub">
-                  {b.centreName} · {b.candidateCount} candidates
-                  {b.stepName ? ` · ${b.stepName} (${b.approvalsHave}/${b.approvalsNeed})` : ""}
-                </span>
-                {b.overdue && <span className="badge overdue">Overdue</span>}
-                {b.waitingForMe && <span className="badge mine">Your turn</span>}
-                {b.lastReason && <span className="b-reason">“{b.lastReason}”</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
+
+        {loading ? (
+          <ul className="list">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="card stack">
+                <Skeleton height={20} width="60%" />
+                <Skeleton height={14} width="85%" />
+                <Skeleton height={8} />
+              </li>
+            ))}
+          </ul>
+        ) : batches.length === 0 ? (
+          <div className="card">
+            <EmptyState title={EMPTY[view].title}>{EMPTY[view].text}</EmptyState>
+          </div>
+        ) : (
+          <ul className="list">
+            {batches.map((b) => (
+              <li key={b.id}>
+                <button className={`batch-card ${selected === b.id ? "on" : ""}`} onClick={() => setSelected(b.id)}>
+                  <div className="top">
+                    <span className="title">{b.courseName}</span>
+                    <StatusBadge status={b.status} />
+                  </div>
+                  <div className="meta">
+                    {b.centreName} · {b.candidateCount} candidates · {ago(b.updatedAt)}
+                  </div>
+                  {b.status === "IN_REVIEW" && b.stepName && b.approvalsNeed ? (
+                    <div className="stack" style={{ gap: 6 }}>
+                      <div className="meta">
+                        {b.stepName} · {b.approvalsHave} of {b.approvalsNeed} approvals
+                      </div>
+                      <Progress value={b.approvalsHave} max={b.approvalsNeed} small />
+                    </div>
+                  ) : null}
+                  {(b.waitingForMe || b.overdue) && (
+                    <div className="chips">
+                      {b.waitingForMe && <Chip tone="accent">Your turn</Chip>}
+                      {b.overdue && (
+                        <Chip tone="danger" icon="clock">
+                          Overdue
+                        </Chip>
+                      )}
+                    </div>
+                  )}
+                  {b.lastReason && <div className="quote">“{b.lastReason}”</div>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+
       <div>
         {selected ? (
-          <BatchDetail id={selected} tick={tick} onChanged={reload} />
+          <BatchDetail key={selected} id={selected} tick={tick} steps={steps} onChanged={reload} />
         ) : (
-          <section className="card muted">Select a batch to see it.</section>
+          <div className="card">
+            <EmptyState icon="file" title="Select a batch">
+              Pick one from the list to see its progress, people and history.
+            </EmptyState>
+          </div>
         )}
       </div>
     </div>

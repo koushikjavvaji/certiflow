@@ -1,4 +1,4 @@
-// CertiFlow schema (Phase 1).
+// Dhruva schema (Phase 1).
 //
 // Conventions used by EVERY table, so adding a new table or field later is routine:
 //   id          uuid primary key (not guessable, safe to expose in URLs)

@@ -90,6 +90,7 @@ export interface BatchDetail {
     candidateCount: number;
     lastReason: string | null;
     overdue: boolean;
+    stepKey: string | null;
     stepName: string | null;
     approvalsNeed: number | null;
   };
