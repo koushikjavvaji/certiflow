@@ -1,6 +1,7 @@
 import { Role, StepScope } from "@prisma/client";
-import { disconnectDb, rawPrisma as db } from "./db";
+
 import { hashPassword } from "./auth";
+import { disconnectDb, rawPrisma as db } from "./db";
 
 // Demo data. Safe to run on every startup (idempotent):
 //   - people / districts / centres use fixed ids + upsert, so ids are the same on every

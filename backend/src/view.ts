@@ -1,8 +1,9 @@
 import type { Prisma } from "@prisma/client";
+
+import type { AuthUser } from "./auth";
+import { forbidden, notFound } from "./chain";
 import { getWorkflow, type WorkflowStepConfig } from "./config-store";
 import { prisma } from "./db";
-import { forbidden, notFound } from "./chain";
-import type { AuthUser } from "./auth";
 import { formatCode } from "./pdf";
 import { canActAtStep, canView } from "./workflow";
 
@@ -34,14 +35,27 @@ async function stepsFor(versions: number[]) {
   return map;
 }
 
+const AUDIT_LIMIT = 500; // newest events of a batch; a huge batch keeps its latest history, not its earliest
+const ALL_VIEW_LIMIT = 200; // the open-ended "all" list is capped; "waiting" and "stuck" are not
+const OPEN_REVIEW_LIMIT = 1000; // safety net for the in-review lists
+
 export async function listBatches(user: AuthUser, view: View) {
   if (view === "stuck" && user.role !== "STATE") throw forbidden("only the state office sees stuck batches");
 
+  // "waiting" and "stuck" only ever concern batches under review, so the database narrows them down
+  // first and lists the longest-waiting ones first. (Filtering after a cap would let a batch that has
+  // waited for days drop off the list behind newer ones: the very case we must not miss.)
+  const scope: Prisma.BatchWhereInput =
+    view === "stuck"
+      ? { status: "IN_REVIEW", overdueAt: { not: null } }
+      : view === "waiting"
+        ? { status: "IN_REVIEW" }
+        : {};
   const batches = await prisma.batch.findMany({
-    where: { ...visibleTo(user), ...(view === "stuck" ? { status: "IN_REVIEW", overdueAt: { not: null } } : {}) },
+    where: { ...visibleTo(user), ...scope },
     include: { centre: { select: { name: true, districtId: true } } },
-    orderBy: { updatedAt: "desc" },
-    take: 200,
+    orderBy: view === "all" ? { updatedAt: "desc" } : { stepEnteredAt: "asc" },
+    take: view === "all" ? ALL_VIEW_LIMIT : OPEN_REVIEW_LIMIT,
   });
   const ids = batches.map((b) => b.id);
   const [approvals, steps] = await Promise.all([
@@ -85,10 +99,10 @@ export async function getBatchDetail(user: AuthUser, batchId: string) {
   });
   if (!batch || !canView(user, batch)) throw notFound("batch not found");
 
-  const [candidates, approvals, audit, certificates, steps] = await Promise.all([
+  const [candidates, approvals, auditNewestFirst, certificates, steps] = await Promise.all([
     prisma.candidate.findMany({ where: { batchId }, orderBy: { createdAt: "asc" } }),
     prisma.approval.findMany({ where: { batchId, batchVersion: batch.version } }),
-    prisma.auditLog.findMany({ where: { batchId }, orderBy: { createdAt: "asc" }, take: 500 }),
+    prisma.auditLog.findMany({ where: { batchId }, orderBy: { createdAt: "desc" }, take: AUDIT_LIMIT }),
     prisma.certificate.findMany({
       where: { batchId },
       include: { candidate: { select: { name: true } }, _count: { select: { attempts: true } } },
@@ -96,6 +110,7 @@ export async function getBatchDetail(user: AuthUser, batchId: string) {
     }),
     getWorkflow(batch.workflowVersion),
   ]);
+  const audit = [...auditNewestFirst].reverse(); // oldest to newest for the screen
   // Who is who. A training centre must NOT learn which individual officer did what (that is
   // the officers' own profile); it sees the role instead ("District officer"), plus its
   // own name on its own actions. Staff see names, because accountability is their job.

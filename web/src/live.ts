@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+
 import { getToken } from "./api";
 
 // Live updates without refreshing, using ONE stream per browser, not one per tab.
@@ -40,6 +41,10 @@ export function useLive(onChange: () => void, enabled: boolean) {
           headers: { authorization: `Bearer ${getToken()}` },
           signal: stop.signal,
         });
+        if (res.status === 401) {
+          stop.abort(); // the login expired: stop retrying; the next action will sign the person out
+          return;
+        }
         if (!res.ok || !res.body) return;
         changed(); // catch up on anything missed while nobody was listening
         const reader = res.body.getReader();

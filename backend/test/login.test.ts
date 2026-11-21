@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
+
+import request from "supertest";
 import { describe, expect, it } from "vitest";
+
 import { createApp } from "../src/app";
-import { rawPrisma } from "../src/db";
 import { hashPassword, verifyPassword } from "../src/auth";
+import { rawPrisma } from "../src/db";
 import { DEFAULT_SEED_PASSWORD, DEMO_EMAILS } from "../src/seed";
 import { DEMO_USER_IDS, app, bearer } from "./helpers";
-import request from "supertest";
 
 // Each call comes from its own "IP" so these tests never trip the per-IP limit by accident.
 const login = (email: string, password: string, a = app) =>

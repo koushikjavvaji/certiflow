@@ -1,14 +1,16 @@
 import { readFile } from "node:fs/promises";
+
 import type { Certificate } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { prisma, writeAudit } from "../db";
-import { Handler, HttpError, chainOf, conflict, notFound } from "../chain";
-import { retryDelivery } from "../issuance";
-import { allow, publishLive } from "../redis";
+
 import { authenticate, requireRole, type AuthUser } from "../auth";
+import { Handler, HttpError, chainOf, conflict, notFound } from "../chain";
 import { config } from "../config";
+import { prisma, writeAudit } from "../db";
+import { retryDelivery } from "../issuance";
 import { ensurePdf, isValidDownloadSignature } from "../pdf";
+import { allow, publishLive } from "../redis";
 import { canView } from "../workflow";
 
 export const certificatesRouter = Router();

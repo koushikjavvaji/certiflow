@@ -1,6 +1,7 @@
 import { Queue } from "bullmq";
-import { config, logger } from "./config";
 import Redis from "ioredis";
+
+import { config, logger } from "./config";
 
 // Everything that talks to Redis lives here, in four sections:
 //   1. the shared client   2. rate limiting   3. job queues (BullMQ)   4. live updates (pub/sub)
@@ -9,7 +10,8 @@ import Redis from "ioredis";
 const MAX_RETRIES_PER_REQUEST = 2; // fail fast instead of making a user wait on a dead Redis
 export const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: MAX_RETRIES_PER_REQUEST });
 
-// ============ 2. Rate limiting// Fixed-window counter in Redis, shared by all API instances. Used on the public verify
+// ============ 2. Rate limiting ============
+// Fixed-window counter in Redis, shared by all API instances. Used on the public verify
 // endpoint so nobody can hammer it to guess codes. Fails OPEN if Redis is unavailable:
 // better a verify page that works than one that is down because a cache restarted.
 export async function allow(key: string, limit: number, windowSeconds: number): Promise<boolean> {

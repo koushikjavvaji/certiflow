@@ -2,10 +2,12 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { config } from "./config";
-import { prisma } from "./db";
+
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
+
+import { config } from "./config";
+import { prisma } from "./db";
 
 export const verifyUrl = (code: string) => `${config.publicBaseUrl}/verify/${code}`;
 

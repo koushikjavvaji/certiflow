@@ -1,8 +1,10 @@
 import { afterAll, describe, expect, it } from "vitest";
+
+import { config } from "../src/config";
 import { rawPrisma } from "../src/db";
 import { fanOutIssuance, markDeliveryFailed, processIssue } from "../src/issuance";
-import { startWorkers, sweepIssuance } from "../src/workers";
 import { closeQueues } from "../src/redis";
+import { startWorkers, sweepIssuance } from "../src/workers";
 import {
   U,
   api,
@@ -125,6 +127,15 @@ describe("the system stays correct when an instance restarts at any moment", () 
   });
 });
 
+describe("giving up before a certificate exists", () => {
+  it("has nothing to mark failed, and says so (the worker then frees the job so the sweep can try again)", async () => {
+    const id = await makeBatch(1);
+    const candidate = await rawPrisma.candidate.findFirstOrThrow({ where: { batchId: id } });
+    expect(await markDeliveryFailed(candidate.id, "database was down")).toBe(false);
+    expect(await rawPrisma.certificate.count({ where: { batchId: id } })).toBe(0);
+  });
+});
+
 describe("NEVER: two certificates for one candidate, or two sharing a number", () => {
   it("the database refuses both", async () => {
     const id = await makeBatch(2);
@@ -185,5 +196,33 @@ describe("a WhatsApp outage: give up cleanly, then the state office retries", ()
         (await rawPrisma.certificate.findUniqueOrThrow({ where: { id: target.id } })).deliveryStatus === "SENT",
     );
     expect((await (await api(U.farah)).post(`/certificates/${target.id}/retry`)).status).toBe(409); // already delivered
+  });
+  it("through the REAL queue: when every retry fails the certificates become FAILED, the batch still completes, and Retry delivers", async () => {
+    const settings = config as unknown as { deliveryAttempts: number };
+    const original = settings.deliveryAttempts;
+    settings.deliveryAttempts = 2; // give up after two tries so this test is quick
+    stub.setDown(true);
+    let id = "";
+    try {
+      id = await makeSubmittedBatch(2);
+      await approveFully(id);
+      await waitFor(async () => {
+        const all = await certs(id);
+        return all.length === 2 && all.every((c) => c.deliveryStatus === "FAILED");
+      });
+      await waitFor(completed(id)); // a failed delivery does not keep the batch open forever
+      expect((await auditFor(id)).filter((a) => a.action === "DELIVERY_FAILED")).toHaveLength(2);
+      expect(await rawPrisma.deliveryAttempt.count({ where: { ok: false, certificate: { batchId: id } } })).toBe(4); // 2 tries each
+    } finally {
+      stub.setDown(false);
+      settings.deliveryAttempts = original;
+    }
+
+    const target = (await certs(id))[0]!;
+    expect((await (await api(U.farah)).post(`/certificates/${target.id}/retry`)).status).toBe(200);
+    await waitFor(
+      async () =>
+        (await rawPrisma.certificate.findUniqueOrThrow({ where: { id: target.id } })).deliveryStatus === "SENT",
+    );
   });
 });

@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
+
 import type { Batch, Candidate, Certificate } from "@prisma/client";
+
 import { Handler, chainOf } from "./chain";
-import { prisma, writeAudit } from "./db";
-import { getQueues, issueJobOptions, publishLive } from "./redis";
 import { config, logger } from "./config";
+import { prisma, writeAudit } from "./db";
 import { downloadUrl, ensurePdf } from "./pdf";
+import { getQueues, issueJobOptions, publishLive } from "./redis";
 
 // Turning an approved batch into certificates on phones.
 //
@@ -265,10 +267,11 @@ export async function processIssue(
   await issueChain.handle({ candidateId, whatsapp: deps.whatsapp, correlationId });
 }
 
-// Called when the queue has given up on a candidate (all retries used).
-export async function markDeliveryFailed(candidateId: string, error: string, correlationId?: string) {
+// Called when the queue has given up on a candidate (all retries used). Returns false when there
+// is no certificate yet (the failure happened before one was made), so there is nothing to mark.
+export async function markDeliveryFailed(candidateId: string, error: string, correlationId?: string): Promise<boolean> {
   const cert = await prisma.certificate.findUnique({ where: { candidateId } });
-  if (!cert) return;
+  if (!cert) return false;
   const { count } = await prisma.certificate.updateMany({
     where: { id: cert.id, deliveryStatus: "PENDING" },
     data: { deliveryStatus: "FAILED" },
@@ -286,6 +289,7 @@ export async function markDeliveryFailed(candidateId: string, error: string, cor
     await publishLive({ type: "certificate.updated", batchId: cert.batchId, certificateId: cert.id });
   }
   await maybeComplete(cert.batchId);
+  return true;
 }
 
 // The batch is COMPLETED once every candidate has a certificate and none is still pending.

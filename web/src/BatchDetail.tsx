@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+
 import {
   api,
   ApiError,
@@ -70,6 +71,16 @@ export default function BatchDetail({
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  // A download changes nothing, so it does not reload the batch.
+  async function download(c: { id: string; number: string }) {
+    try {
+      await downloadFile(`/certificates/${c.id}/pdf`, `${c.number}.pdf`);
+      toast("Download started");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "download failed", "error");
     }
   }
 
@@ -396,16 +407,7 @@ export default function BatchDetail({
                       <td className="cell-actions">
                         <div className="actions">
                           {c.status === "VALID" && (
-                            <button
-                              className="btn sm"
-                              disabled={busy}
-                              onClick={() =>
-                                void run(
-                                  () => downloadFile(`/certificates/${c.id}/pdf`, `${c.number}.pdf`),
-                                  "Download started",
-                                )
-                              }
-                            >
+                            <button className="btn sm" disabled={busy} onClick={() => void download(c)}>
                               <Icon name="download" size={14} /> PDF
                             </button>
                           )}

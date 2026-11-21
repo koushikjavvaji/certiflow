@@ -55,3 +55,8 @@ export const config = {
 // Structured JSON logs. Every HTTP request gets a request id (see app.ts) that is attached to its
 // log lines, so one batch's story can be followed across the API and the worker.
 export const logger = pino({ level: config.logLevel, base: { service: process.env.SERVICE_NAME ?? "api" } });
+
+// A reminder, not a block (the demo runs on the default). Real use needs a real secret.
+if (config.jwtSecret.startsWith("dev-only")) {
+  logger.warn("JWT_SECRET is the well-known development value: set a real secret before any real use");
+}

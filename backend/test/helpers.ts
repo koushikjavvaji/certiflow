@@ -1,10 +1,12 @@
-import request from "supertest";
 import { randomBytes } from "node:crypto";
+
+import request from "supertest";
+
 import { createApp } from "../src/app";
-import { DEMO_USER_IDS } from "../src/seed";
 import { signToken } from "../src/auth";
 import { rawPrisma } from "../src/db";
 import type { WhatsAppClient } from "../src/issuance";
+import { DEMO_USER_IDS } from "../src/seed";
 
 export const app = createApp({ demoMode: true });
 export { DEMO_USER_IDS };

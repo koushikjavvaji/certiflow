@@ -1,4 +1,5 @@
 import { parse } from "csv-parse/sync";
+
 import { Handler, chainOf } from "./chain";
 
 export const MAX_ROWS = 2000;

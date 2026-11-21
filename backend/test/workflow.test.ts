@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
+
+import { createApp } from "../src/app";
 import { Handler, chainOf } from "../src/chain";
 import { invalidateConfigCache, type WorkflowStepConfig } from "../src/config-store";
 import { rawPrisma } from "../src/db";
-import { StepChain } from "../src/workflow";
 import { closeLive, subscribeLive } from "../src/redis";
-import { createApp } from "../src/app";
+import { StepChain } from "../src/workflow";
 import {
   U,
   api,
@@ -71,6 +72,35 @@ describe("the approval path follows the rules stored in the database", () => {
       await approveOk(U.kabir, id);
       expect((await batchRow(id)).currentStepKey).toBe("STATE_REVIEW");
     });
+  });
+});
+
+describe("the 'waiting for me' list", () => {
+  it("lists the longest-waiting batch first, so an old file can never hide behind newer ones", async () => {
+    const older = await makeSubmittedBatch(3);
+    const newer = await makeSubmittedBatch(3);
+    // pretend the older one has been waiting for days
+    await rawPrisma.batch.update({
+      where: { id: older },
+      data: { stepEnteredAt: new Date(Date.now() - 3 * 86_400_000) },
+    });
+    const waiting = (await (await api(U.dev)).get("/batches?view=waiting")).body.batches as { id: string }[];
+    const ids = waiting.map((b) => b.id);
+    expect(ids).toContain(older);
+    expect(ids).toContain(newer);
+    expect(ids.indexOf(older)).toBeLessThan(ids.indexOf(newer));
+  });
+
+  it("only shows batches whose current step is the person's own", async () => {
+    const id = await makeSubmittedBatch(3);
+    const idsFor = async (userId: string) =>
+      ((await (await api(userId)).get("/batches?view=waiting")).body.batches as { id: string }[]).map((b) => b.id);
+    expect(await idsFor(U.dev)).toContain(id); // district step: Dev's turn
+    expect(await idsFor(U.farah)).not.toContain(id); // not the state office's turn yet
+    expect(await idsFor(U.isha)).not.toContain(id); // another district
+    await approveOk(U.dev, id);
+    expect(await idsFor(U.dev)).not.toContain(id); // already approved: no longer waiting for Dev
+    expect(await idsFor(U.meera)).toContain(id);
   });
 });
 

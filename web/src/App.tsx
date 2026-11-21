@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { api, ApiError, getToken, post, setToken, type ConfigView, type DemoUser, type Me } from "./api";
+
 import Dashboard from "./Dashboard";
-import { BRAND, BRAND_TELUGU, Icon, ROLE_LABEL, TAGLINE, ToastProvider } from "./ui";
 import Verify from "./Verify";
+import { api, ApiError, getToken, post, setToken, type ConfigView, type DemoUser, type Me } from "./api";
+import { BRAND, BRAND_TELUGU, Icon, ROLE_LABEL, TAGLINE, ToastProvider } from "./ui";
 
 const ROLE_BLURB: Record<string, string> = {
   CENTRE: "Create batches, upload your candidates and follow their approval.",

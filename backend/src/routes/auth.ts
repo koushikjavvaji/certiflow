@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+
 import { authenticate, signToken, verifyPassword } from "../auth";
 import { Handler, HttpError, chainOf } from "../chain";
 import { config } from "../config";

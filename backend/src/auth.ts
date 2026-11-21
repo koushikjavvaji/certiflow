@@ -1,10 +1,12 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
-import type { NextFunction, Request, Response } from "express";
+
 import type { Role } from "@prisma/client";
+import type { NextFunction, Request, Response } from "express";
+import jwt from "jsonwebtoken";
 import { z } from "zod";
+
 import { config } from "./config";
 import { prisma } from "./db";
-import jwt from "jsonwebtoken";
 
 // Everything about WHO YOU ARE, in one place:
 //   1. login tokens        2. password hashing        3. the "who is calling?" middleware
@@ -89,7 +91,6 @@ export interface AuthUser {
 }
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthUser;

@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
+
 import { createApp } from "../src/app";
 import { authenticate, requireRole } from "../src/auth";
 import { DEMO_USER_IDS, app, bearer, tokenFor } from "./helpers";

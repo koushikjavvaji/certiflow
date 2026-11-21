@@ -1,7 +1,8 @@
 import { Worker, type Job } from "bullmq";
-import { prisma, writeAudit } from "./db";
+
 import { config, logger } from "./config";
 import { getSetting, getWorkflow } from "./config-store";
+import { prisma, writeAudit } from "./db";
 import { fanOutIssuance, markDeliveryFailed, processIssue, type WhatsAppClient } from "./issuance";
 import { QUEUE_EVENTS, QUEUE_ISSUANCE, QUEUE_MAINTENANCE, createBullConnection, getQueues, publishLive } from "./redis";
 
@@ -83,7 +84,12 @@ export function startWorkers(deps: { whatsapp: WhatsAppClient }, opts: { schedul
     const exhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
     if (exhausted) {
       logger.error({ candidateId: job.data.candidateId, err: err.message }, "delivery gave up after all retries");
-      void markDeliveryFailed(job.data.candidateId, err.message, job.data.correlationId);
+      void (async () => {
+        const marked = await markDeliveryFailed(job.data.candidateId, err.message, job.data.correlationId);
+        // No certificate exists, so there is nothing to mark FAILED. Remove the dead job so its id is
+        // free again and the next sweep offers this candidate once more (otherwise it would be stuck).
+        if (!marked) await job.remove();
+      })().catch((e: Error) => logger.error({ err: e.message }, "could not record the failed delivery"));
     }
   });
 

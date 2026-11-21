@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+
 import type { AuthUser } from "./auth";
 
 // Two clients sharing ONE connection pool and ONE engine:
@@ -15,11 +16,9 @@ const SOFT_DELETE_MODELS = new Set(
   Prisma.dmmf.datamodel.models.filter((m) => m.fields.some((f) => f.name === "isActive")).map((m) => m.name),
 );
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyArgs = any;
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const delegate = (model: string): any => (rawPrisma as any)[lowerFirst(model)];
 
 function hideDeleted(model: string, args: AnyArgs): AnyArgs {

@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
+
+import express, { type ErrorRequestHandler } from "express";
+import helmet from "helmet";
+import pinoHttp from "pino-http";
 import { ZodError } from "zod";
+
 import { HttpError } from "./chain";
 import { config, logger } from "./config";
 import { createAuthRouter } from "./routes/auth";
 import { batchesRouter } from "./routes/batches";
 import { certificatesRouter } from "./routes/certificates";
 import { systemRouter } from "./routes/system";
-import express, { type ErrorRequestHandler } from "express";
-import helmet from "helmet";
-import pinoHttp from "pino-http";
 
 export interface AppOptions {
   demoMode?: boolean;

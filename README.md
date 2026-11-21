@@ -86,7 +86,7 @@ change live.
 | **Event-driven** | Approving emits a `batch.approved` event; a worker turns it into one job per candidate. PDFs and WhatsApp never run inside a user's request, so a slow or failing provider cannot hold anyone up. Live screen updates are a second event stream (Redis pub/sub) |
 | **Scalable** | The API keeps no state in memory and the worker is the same image with a different command: `docker compose up -d --scale worker=3`. Each job goes to exactly one worker, and a dead worker's job is picked up by another. Every step is repeat-safe, so any instance can restart at any moment (**tested**: a worker is stopped mid-batch and a new one finishes it with no duplicates) |
 | **Containerised** | Six containers, one command: `docker compose up --build`. Health checks and start order are set, and migrations and demo data are applied on start. A fresh clone runs with no manual steps |
-| **Tested** | 137 tests on the real database and queue prove each moment and each "never" (section 3 and section 7) |
+| **Tested** | 141 tests on the real database and queue prove each moment and each "never" (section 3 and section 7) |
 | **Secure** | Authorisation is checked **on the server** for role, district and step; every input is validated; signed links and random codes; salted password hashes with brute-force limits; rate-limited public endpoints; no CORS; request size limits; internals never leaked |
 | **Observable** | JSON logs where every line carries a request id; the same id is stored in the audit log and follows a batch from the API into the worker; each WhatsApp attempt is recorded; each batch has a **History** panel; `/health` checks the database and Redis |
 
@@ -175,7 +175,7 @@ Tools that are not flows (database client, config, PDF drawing, WhatsApp client)
 
 ## 7. Tests
 
-**137 automated tests** on the **real** Postgres and Redis (not mocks), in their own throwaway database and queue
+**141 automated tests** on the **real** Postgres and Redis (not mocks), in their own throwaway database and queue
 namespace so they never touch demo data. They run the real queue with an in-process worker and a WhatsApp stand-in
 that fails, times out, and "delivers but loses the reply".
 ```bash
@@ -208,5 +208,10 @@ test that failed 1 time in 16, and a race test that passed without the lock it w
 - **CSV only**, Indian mobile numbers only, 2,000 rows per upload.
 - **PDFs live on a shared Docker volume** (one host). Production uses object storage; the code touches files in one place (`pdf.ts`).
 - **Delivery retries last minutes** (8 tries), to keep the demo quick. A real outage can last hours.
+- **Dependency audit:** `npm audit` reports 4 high advisories in the backend, all inside the Prisma *command-line* tool
+  (`deepmerge-ts`, `effect`), which only reads our own schema when building and migrating; no request or user
+  input reaches them. The fix is a breaking Prisma 7 upgrade, which I did not risk for this submission.
+- **Lists are capped:** the "all batches" list shows the newest 200 and a batch page loads all its candidates
+  and its newest 500 history entries. "Waiting for me" and "Stuck" are not capped.
 - **Not load tested.** The deployment sizing is reasoned from one measurement and the provider's limits.
 - **Demo mode** (on by default in Docker Compose, because the brief's demo needs it) lists the seeded users publicly and lets anyone act as them. Set `DEMO_MODE=false` for real use.

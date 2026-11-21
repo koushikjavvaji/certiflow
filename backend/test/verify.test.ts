@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
+
+import request from "supertest";
 import { describe, expect, it } from "vitest";
+
 import { rawPrisma } from "../src/db";
 import { processIssue } from "../src/issuance";
 import {
@@ -13,7 +16,6 @@ import {
   makeSubmittedBatch,
   otherCentreToken,
 } from "./helpers";
-import request from "supertest";
 
 // Issues certificates directly (no worker) so these tests only look at verify / cancel.
 async function issuedBatch(n = 3) {

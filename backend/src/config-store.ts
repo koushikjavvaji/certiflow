@@ -1,4 +1,5 @@
 import type { Role, StepScope } from "@prisma/client";
+
 import { prisma } from "./db";
 import { redis } from "./redis";
 

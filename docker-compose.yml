@@ -16,6 +16,7 @@ x-backend-env: &backend-env
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-certiflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-certiflow}
@@ -32,6 +33,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     # appendonly: queued jobs survive a Redis restart (matters from Phase 4).
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -46,6 +48,7 @@ services:
 
   fake-whatsapp:
     build: ./fake-whatsapp
+    restart: unless-stopped
     environment:
       FAKE_MODE: ${FAKE_MODE:-flaky} # flaky | reliable | down (also switchable live: PUT :4000/mode)
     ports:
@@ -56,11 +59,15 @@ services:
       timeout: 3s
       retries: 10
 
+  # (`exec` makes Node the container's main process, so it receives the stop signal and shuts down
+  # gracefully; without it the shell swallows the signal and Docker has to kill the container.)
   # The API applies pending migrations and the (idempotent) demo seed on startup, then
   # serves requests. It keeps no state in memory, so it can be scaled out and restarted.
   api:
     build: ./backend
-    command: ["sh", "-c", "npx prisma migrate deploy && node dist/seed.js && node dist/server.js"]
+    restart: unless-stopped
+    stop_grace_period: 15s # time to finish in-flight work before Docker force-stops it
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/seed.js && exec node dist/server.js"]
     environment:
       <<: *backend-env
       PORT: "3000"
@@ -86,6 +93,7 @@ services:
   # (BullMQ gives each job to exactly one worker; jobs of a dead worker are re-run.)
   worker:
     build: ./backend
+    stop_grace_period: 30s # a worker finishes the jobs in hand first
     command: ["node", "dist/worker.js"]
     environment:
       <<: *backend-env
@@ -100,6 +108,7 @@ services:
 
   web:
     build: ./web
+    restart: unless-stopped
     ports:
       - "8080:80"
     depends_on:

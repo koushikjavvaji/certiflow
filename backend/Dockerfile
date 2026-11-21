@@ -12,7 +12,7 @@ RUN npm ci
 COPY prisma ./prisma
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
+RUN npm run build && npm prune --omit=dev
 
 # Certificate PDFs are written here (a volume in docker-compose).
 RUN mkdir -p /data/certs && chown -R node:node /data
